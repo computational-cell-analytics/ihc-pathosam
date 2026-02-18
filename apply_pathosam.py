@@ -16,7 +16,7 @@ def _load_image(input_path):
     return image
 
 
-def apply_pathosam(input_path, output_path, check=False):
+def apply_pathosam(input_path, output_path, check):
     image = _load_image(input_path)
 
     if os.path.exists(output_path):
@@ -41,6 +41,8 @@ def apply_pathosam(input_path, output_path, check=False):
         output_folder = os.path.split(output_path)[0]
         os.makedirs(output_folder, exist_ok=True)
         # Write the segmentation.
+        with h5py.File(output_path, "w") as f:
+            f.create_dataset("segmentation", data=segmentation, compression="gzip")
 
 
 # TODO: support for masking, WSI inference, semantic segmentation and/or object classification
@@ -49,9 +51,10 @@ def main():
     parser.add_argument("-i", "--image_path", required=True)
     # TODO: make the model settable
     parser.add_argument("-o", "--output_path")
+    parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
 
-    apply_pathosam(args.image_path, args.output_path)
+    apply_pathosam(args.image_path, args.output_path, args.check)
 
 
 if __name__ == "__main__":
