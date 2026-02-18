@@ -4,6 +4,7 @@ from pathlib import Path
 
 import h5py
 from micro_sam.automatic_segmentation import automatic_instance_segmentation, get_predictor_and_segmenter
+from util import load_tif_as_zarr, get_mask
 
 
 def _load_image(input_path):
@@ -11,31 +12,37 @@ def _load_image(input_path):
     if ext == ".h5":
         with h5py.File(input_path, "r") as f:
             image = f["image"][:]
+    elif ext == ".tif":
+        image = load_tif_as_zarr(input_path)
     else:
-        raise ValueError(f"Unsupported file extension {ext}")
+        raise ValueError(f"Unsupported file extension: {ext}.")
     return image
 
 
-def apply_pathosam(input_path, output_path, check):
+def apply_pathosam(input_path, output_path, check, use_mask):
     image = _load_image(input_path)
 
     if os.path.exists(output_path):
         with h5py.File(output_path, "r") as f:
             segmentation = f["segmentation"][:]
     else:
-        predictor, segmenter = get_predictor_and_segmenter(model_type="vit_b_histopathology", is_tiled=True)
-        tile_shape, halo = (512, 512), (64, 64)
+        predictor, segmenter = get_predictor_and_segmenter(
+            model_type="vit_b_histopathology", is_tiled=True
+        )
+        tile_shape, halo = (376, 376), (64, 64)
+        mask = get_mask(input_path) if use_mask else None
         segmentation = automatic_instance_segmentation(
-            predictor, segmenter, image, tile_shape=tile_shape, halo=halo, verbose=True, ndim=2
+            predictor, segmenter, image, tile_shape=tile_shape,
+            halo=halo, verbose=True, ndim=2, batch_size=16,
+            mask=mask,
         )
 
     if check:
         import napari
         v = napari.Viewer()
         v.add_image(image)
-        v.add_image(segmentation)
+        v.add_labels(segmentation)
         napari.run()
-        return
 
     if not os.path.exists(output_path):
         output_folder = os.path.split(output_path)[0]
