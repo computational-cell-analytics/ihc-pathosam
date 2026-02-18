@@ -3,7 +3,10 @@ import json
 import numpy as np
 import tifffile
 import zarr
+
 from skimage.draw import polygon as draw_polygon
+from scipy.ndimage import uniform_filter
+from elf.wrapper.resized_volume import ResizedVolume
 
 
 def load_tif_as_zarr(path, scale_level=0):
@@ -88,3 +91,33 @@ def extract_region_instance_id_arrays(json_path, pad=0):
                 break  # regions are non-overlapping; assigned
 
     return out
+
+
+def get_mask(input_path):
+    scale = 3
+    image = load_tif_as_zarr(input_path, scale_level=scale)[:]
+
+    thresh1 = np.array([230, 230, 230])[None, None]
+    thresh2 = np.array([250, 0, 0])[None, None]
+    thresh3 = np.array([10, 10, 10])[None, None]
+    mask = (image > thresh1).all(axis=-1) | (image > thresh2).all(axis=-1) | (image < thresh3).all(axis=-1)
+    window = (32, 32)
+    mask = uniform_filter(mask.astype("float32"), size=window, mode="reflect")
+    min_mask_fraction = 0.75
+    mask = ~(mask > min_mask_fraction)
+
+    # import napari
+    # v = napari.Viewer()
+    # v.add_image(image)
+    # v.add_labels(mask)
+    # napari.run()
+
+    full_shape = load_tif_as_zarr(input_path, scale_level=0).shape[:2]
+    mask = ResizedVolume(mask, shape=full_shape)
+    return mask
+
+
+if __name__ == "__main__":
+    input_path = "data/philips/cd8/RE-000139-1_1_4-CD8_CRC_CancerScout-2024-07-12T08-43-25.tiff"
+    mask = get_mask(input_path)
+    print(mask.shape)
