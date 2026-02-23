@@ -30,7 +30,7 @@ def get_loaders(version):
         val_data = [f["image"][val_bb].transpose((2, 0, 1))]
         val_labels = [f[label_key][val_bb]]
 
-    batch_size = 8
+    batch_size = 4
     train_loader = default_sam_loader(
         raw_paths=train_data, label_paths=train_labels,
         raw_key=None, label_key=None,

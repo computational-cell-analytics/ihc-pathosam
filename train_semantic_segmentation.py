@@ -9,7 +9,7 @@ import micro_sam.training as sam_training
 from micro_sam.instance_segmentation import get_unetr
 
 from patho_sam.training import SemanticInstanceTrainer
-from patho_sam.training.util import calculate_class_weights_for_loss_weighting, histopathology_identity
+from patho_sam.training.util import histopathology_identity
 
 
 def get_loaders():
@@ -36,12 +36,11 @@ def get_loaders():
         val_data = [f["image"][val_bb].transpose((2, 0, 1))]
         val_labels = [f[label_key][val_bb]]
 
-    batch_size = 8
+    batch_size = 4
     train_loader = torch_em.default_segmentation_loader(
         raw_paths=train_data, label_paths=train_labels,
         raw_key=None, label_key=None,
         patch_shape=(512, 512), with_channels=True,
-        with_segmentation_decoder=True,
         batch_size=batch_size, n_samples=800,
         raw_transform=histopathology_identity,
     )
@@ -49,8 +48,7 @@ def get_loaders():
         raw_paths=val_data, label_paths=val_labels,
         raw_key=None, label_key=None,
         patch_shape=(512, 512), with_channels=True,
-        with_segmentation_decoder=True,
-        batch_size=batch_size, n_samples=200,
+        batch_size=batch_size, n_samples=100,
         raw_transform=histopathology_identity,
     )
 
@@ -103,7 +101,8 @@ def train_semantic_segmentation():
         convert_inputs=convert_inputs,
         num_classes=num_classes,
         dice_weight=0,
-        class_weights=calculate_class_weights_for_loss_weighting(),
+        class_weights=[1, 2, 10],
+        device=torch.device("cuda"),
     )
     trainer.fit(iterations=int(1e5), overwrite_training=False)
 
