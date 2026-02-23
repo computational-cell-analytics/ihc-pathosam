@@ -1,5 +1,7 @@
 import json
+from pathlib import Path
 
+import h5py
 import numpy as np
 import tifffile
 import zarr
@@ -13,7 +15,10 @@ def load_tif_as_zarr(path, scale_level=0):
     tif = tifffile.TiffFile(path)
     store = tif.aszarr()
     groups = zarr.open(store, mode="r")
-    data = groups[str(scale_level)]
+    try:
+        data = groups[str(scale_level)]
+    except IndexError:
+        data = groups
     return data
 
 
@@ -115,6 +120,18 @@ def get_mask(input_path):
     full_shape = load_tif_as_zarr(input_path, scale_level=0).shape[:2]
     mask = ResizedVolume(mask, shape=full_shape)
     return mask
+
+
+def load_image(input_path):
+    ext = Path(input_path).suffix
+    if ext == ".h5":
+        with h5py.File(input_path, "r") as f:
+            image = f["image"][:]
+    elif ext in (".tif", ".tiff"):
+        image = load_tif_as_zarr(input_path)
+    else:
+        raise ValueError(f"Unsupported file extension: {ext}.")
+    return image
 
 
 if __name__ == "__main__":
