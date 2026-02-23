@@ -89,7 +89,7 @@ def main():
             f.create_dataset("image", data=image, compression="gzip")
             f.create_dataset("labels/ihc", data=seg, compression="gzip")
             if pred is not None:
-                f.create_dataset("labels/silver/semantic", data=merged, compression="gzip")
+                f.create_dataset("labels/silver/semantic", data=semantic, compression="gzip")
                 f.create_dataset("labels/silver/nuclei", data=merged, compression="gzip")
                 f.create_dataset("labels/silver/positive_ids", data=pos_ids)
                 f.create_dataset("labels/silver/negative_ids", data=neg_ids)
