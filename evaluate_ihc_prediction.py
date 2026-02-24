@@ -4,13 +4,13 @@ from collections import OrderedDict
 from pathlib import Path
 
 import h5py
+import numpy as np
 import torch
 
 from elf.evaluation.matching import mean_segmentation_accuracy
 from micro_sam.automatic_segmentation import automatic_instance_segmentation, get_predictor_and_segmenter
 from micro_sam.instance_segmentation import get_unetr
 from micro_sam.util import get_sam_model
-from patho_sam.training.util import histopathology_identity
 from torch_em.util.prediction import predict_with_halo
 
 DEFAULT_INPUT = "data/annotated_data/cd8/RE-000072-1_1_4-CD8_CRC_CancerScout-2024-07-12T11-04-16_tile02.h5"
@@ -30,10 +30,10 @@ def run_semantic_segmentation(image, semantic_model_path, tile_shape, halo):
         decoder_state=decoder_state,
         out_channels=num_classes,
         flexible_load_checkpoint=True,
+        final_activation=None,
     )
     model_state = torch.load(semantic_model_path, map_location="cpu", weights_only=False)["model_state"]
 
-    # model_state = remap_keys(model_state)
     unetr.load_state_dict(model_state)
     unetr.to(device)
     unetr.eval()
@@ -44,12 +44,23 @@ def run_semantic_segmentation(image, semantic_model_path, tile_shape, halo):
         input_, unetr, gpu_ids=[0], block_shape=tile_shape, halo=halo, preprocess=lambda x: x.astype("float32"),
         with_channels=True,
     )
+    semantic = semantic.argmax(axis=0)
 
     return semantic
 
 
-# TODO
 def filter_segmentation(instances, semantic):
+    from skimage.measure import regionprops
+
+    def majority_label(regionmask, intensity_image):
+        values = intensity_image[regionmask]
+        return np.bincount(values).argmax()
+
+    props = regionprops(instances, semantic, extra_properties=(majority_label,))
+    semantic_id_map = {prop.label: prop.majority_label for prop in props}
+    keep_ids = [seg_id for seg_id, sem_id in semantic_id_map.items() if sem_id == 2]
+    filtered = instances.copy()
+    filtered[~np.isin(filtered, keep_ids)] = 0
     return filtered
 
 
@@ -68,19 +79,15 @@ def run_prediction(input_path, instance_model_path, semantic_model_path, cache):
     with h5py.File(input_path, "r") as f:
         image = f["image"][:]
 
-    # TODO reactivate
     # Run instance segmentation.
     tile_shape, halo = (376, 376), (64, 64)
-    # predictor, segmenter = get_predictor_and_segmenter(
-    #     model_type="vit_b_histopathology", is_tiled=True, checkpoint=instance_model_path,
-    # )
-    # pred = automatic_instance_segmentation(
-    #     predictor, segmenter, image, tile_shape=tile_shape,
-    #     halo=halo, verbose=True, ndim=2, batch_size=8, min_size=40,
-    # )
-
-    import numpy as np
-    pred = np.zeros_like(image)
+    predictor, segmenter = get_predictor_and_segmenter(
+        model_type="vit_b_histopathology", is_tiled=True, checkpoint=instance_model_path,
+    )
+    pred = automatic_instance_segmentation(
+        predictor, segmenter, image, tile_shape=tile_shape,
+        halo=halo, verbose=True, ndim=2, batch_size=8, min_size=40,
+    )
 
     # Filter with semantic model if specified.
     if semantic_model_path is not None:

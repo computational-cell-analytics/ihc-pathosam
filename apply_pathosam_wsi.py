@@ -10,7 +10,7 @@ from util import load_image, get_mask
 def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_key):
     output_folder = os.path.split(output_path)[0]
     os.makedirs(output_folder, exist_ok=True)
-    if os.path.exists(output_path) and output_key in zarr.open(output_path, "r"):
+    if os.path.exists(output_path) and output_key in zarr.open(output_path, mode="r"):
         return
 
     image = load_image(image_path)
@@ -23,7 +23,7 @@ def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_k
 
     shards = tuple(4 * ts for ts in tile_shape)
     segmentation = zarr.open(output_path, mode="a").create_array(
-        name="seg", shape=image.shape[:2], dtype="uint64", chunks=tile_shape, shards=shards,
+        name=output_key, shape=image.shape[:2], dtype="uint64", chunks=tile_shape, shards=shards,
     )
 
     with TemporaryDirectory() as tmp:
