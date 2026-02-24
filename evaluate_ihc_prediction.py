@@ -74,7 +74,7 @@ def run_prediction(input_path, instance_model_path, semantic_model_path, cache):
     if cache and os.path.exists(cache_path):
         with h5py.File(cache_path, "r") as f:
             pred = f["segmentation"][:]
-        return pred
+        return pred, cache_path
 
     with h5py.File(input_path, "r") as f:
         image = f["image"][:]
@@ -105,24 +105,37 @@ def run_prediction(input_path, instance_model_path, semantic_model_path, cache):
         with h5py.File(cache_path, mode="a") as f:
             f.create_dataset("segmentation", data=pred, compression="gzip")
 
-    return pred
+    return pred, cache_path
 
 
-def run_eval(input_path, pred, check):
+def run_eval(input_path, pred, check, cache_path):
     with h5py.File(input_path, "r") as f:
         labels = f["labels/ihc"][:]
 
-    # TODO: visualize other predictions.
     if check:
         with h5py.File(input_path, "r") as f:
             image = f["image"][:]
+        if os.path.exists(cache_path):
+            with h5py.File(cache_path, "r") as f:
+                instance_seg = f["instance_segmentation"][:] if "instance_segmentation" in f else None
+                semantic_seg = f["semantic_segmentation"][:] if "semantic_segmentation" in f else None
+        else:
+            instance_seg, semantic_seg = None, None
 
         import napari
         v = napari.Viewer()
         v.add_image(image)
         v.add_labels(labels)
         v.add_labels(pred)
+        if instance_seg is not None:
+            v.add_labels(instance_seg)
+        if semantic_seg is not None:
+            v.add_labels(semantic_seg)
         napari.run()
+
+    else:
+        instance_seg, semantic_seg = None, None
+
 
     msa, sas = mean_segmentation_accuracy(pred, labels, return_accuracies=True)
     print("mSA :", msa)
@@ -140,9 +153,9 @@ def main():
     args = parser.parse_args()
 
     input_path = args.input
-    pred = run_prediction(input_path, args.instance_model, args.semantic_model, args.cache)
+    pred, cache_path = run_prediction(input_path, args.instance_model, args.semantic_model, args.cache)
 
-    run_eval(input_path, pred, args.check)
+    run_eval(input_path, pred, args.check, cache_path)
 
 
 if __name__ == "__main__":
