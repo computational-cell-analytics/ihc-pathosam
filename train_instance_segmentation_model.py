@@ -30,7 +30,7 @@ def get_loaders(version):
         val_data = [f["image"][val_bb].transpose((2, 0, 1))]
         val_labels = [f[label_key][val_bb]]
 
-    batch_size = 4
+    batch_size = 6
     train_loader = default_sam_loader(
         raw_paths=train_data, label_paths=train_labels,
         raw_key=None, label_key=None,
@@ -43,7 +43,7 @@ def get_loaders(version):
         raw_key=None, label_key=None,
         patch_shape=(512, 512), with_channels=True,
         with_segmentation_decoder=True,
-        batch_size=batch_size, n_samples=200,
+        batch_size=batch_size, n_samples=100,
     )
 
     return train_loader, val_loader
@@ -61,7 +61,8 @@ def train_v2():
     train_loader, val_loader = get_loaders(version=2)
     train_sam(
         name="pathosam-all-nuc", model_type="vit_b_histopathology",
-        train_loader=train_loader, val_loader=val_loader,
+        train_loader=train_loader, val_loader=val_loader, early_stopping=25,
+        n_epochs=200, n_objects_per_batch=10, lr=1e-4,
     )
 
 
