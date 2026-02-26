@@ -56,7 +56,6 @@ def main():
 
     f = zarr.open(args.input_path, mode="r")
     instances = f[args.instance_key][roi]
-    print(instances.dtype)
 
     def majority_label(regionmask, intensity_image):
         values = intensity_image[regionmask].astype("uint16")

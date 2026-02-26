@@ -6,11 +6,14 @@ from micro_sam.automatic_segmentation import automatic_instance_segmentation, ge
 from util import load_image
 
 
-def apply_pathosam(image_path, output_path, model_path, use_mask, check, batch_size, output_key):
+def apply_pathosam(image_path, output_path, model_path, check, batch_size, output_key, roi):
     output_folder = os.path.split(output_path)[0]
     os.makedirs(output_folder, exist_ok=True)
 
     image = load_image(image_path)
+    if roi is not None:
+        bb = (slice(roi[0], roi[1]), slice(roi[2], roi[3]))
+        image = image[bb]
 
     if os.path.exists(output_path) and output_key in h5py.File(output_path, "r"):
         with h5py.File(output_path, "r") as f:
@@ -45,14 +48,15 @@ def main():
     parser.add_argument("-i", "--image_path", required=True)
     parser.add_argument("-o", "--output_path")
     parser.add_argument("-m", "--model_path")
+    parser.add_argument("--roi", nargs=4, type=int)
+    parser.add_argument("-k", "--output_key", default="segmentation")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--batch_size", default=16, type=int)
-    parser.add_argument("-k", "--output_key", default="segmentation")
     args = parser.parse_args()
 
     apply_pathosam(
-        args.image_path, args.output_path, args.model_path,
-        args.check, args.batch_size, args.output_key,
+        image_path=args.image_path, output_path=args.output_path, model_path=args.model_path,
+        check=args.check, batch_size=args.batch_size, output_key=args.output_key, roi=args.roi,
     )
 
 
