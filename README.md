@@ -22,7 +22,7 @@ The best way to set-up an environment with all dependencies is with [micromamba]
 You need to: 
 - Create an environment with micro_sam:
     - `micromamba create -c conda-forge micro_sam -n patho-sam`
-    - Make sure that version 1.7.4 of micro_sam (or later) is installed, which is required for efficient WSI segmentation.
+    - Make sure that version 1.7.5 of micro_sam (or later) is installed, which is required for efficient WSI segmentation.
 - Install PathoSAM in it:
     - `micromamba activate patho-sam`
     - `git clone https://github.com/computational-cell-analytics/patho-sam`

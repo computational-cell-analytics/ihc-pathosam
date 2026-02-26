@@ -3,6 +3,7 @@ import os
 from tempfile import TemporaryDirectory
 
 import zarr
+from elf.wrapper import RoiWrapper
 from micro_sam.automatic_segmentation import automatic_instance_segmentation, get_predictor_and_segmenter
 from micro_sam.util import precompute_image_embeddings
 from patho_sam.semantic_segmentation import get_semantic_predictor_and_segmenter
@@ -50,13 +51,16 @@ def _run_semantic_segmentation(
     )
 
 
-def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_key, semantic, skip_mask):
+def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_key, semantic, skip_mask, roi):
     output_folder = os.path.split(output_path)[0]
     os.makedirs(output_folder, exist_ok=True)
     if os.path.exists(output_path) and output_key in zarr.open(output_path, mode="r"):
         return
 
     image = load_image(image_path)
+    if roi is not None:
+        roi = (slice(roi[0], roi[1]), slice(roi[2], roi[3]), slice(0, 3))
+        image = RoiWrapper(image, roi)
     predictor, segmenter = _get_predictor_and_segmenter(
         model_type="vit_b_histopathology", model_path=model_path, semantic=semantic,
     )
@@ -94,11 +98,13 @@ def main():
     parser.add_argument("-k", "--output_key", default="segmentation")
     parser.add_argument("--semantic", action="store_true")
     parser.add_argument("--skip_mask", action="store_true")
+    parser.add_argument("--roi", nargs=4, type=int)
     args = parser.parse_args()
 
     apply_pathosam_wsi(
-        args.image_path, args.output_path, args.model_path, args.batch_size, args.output_key,
-        args.semantic, args.skip_mask,
+        image_path=args.image_path, output_path=args.output_path, model_path=args.model_path,
+        batch_size=args.batch_size, output_key=args.output_key,
+        semantic=args.semantic, skip_mask=args.skip_mask, roi=args.roi,
     )
 
 
