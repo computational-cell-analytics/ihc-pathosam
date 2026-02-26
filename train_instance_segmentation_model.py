@@ -66,6 +66,8 @@ def train_v2():
     )
 
 
+# TODO implement segmentationdecoder only training to make this more efficient.
+# TODO need to train on fully empty patches to avoid spurious segmentations.
 def main():
     # train_v1()
     train_v2()

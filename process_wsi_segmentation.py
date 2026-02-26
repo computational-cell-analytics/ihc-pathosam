@@ -11,7 +11,7 @@ from skimage.measure import regionprops_table, find_contours, approximate_polygo
 from tqdm import tqdm
 
 
-def extract_polygons(instances, props):
+def extract_polygons(instances, props, global_offset):
     halo = 2
 
     def extract_mask(row_id):
@@ -23,10 +23,10 @@ def extract_polygons(instances, props):
         mask = (instances[bbox] == prop.label).astype("uint8")
         contour = find_contours(mask, level=0.5)
         contour = max(contour, key=len)
-        contour[:, 0] += bbox[0].start
-        contour[:, 1] += bbox[1].start
-        contour = approximate_polygon(contour, tolerance=2.0)
-        return contour.tolist()
+        contour[:, 0] += (bbox[0].start + global_offset[0])
+        contour[:, 1] += (bbox[1].start + global_offset[1])
+        contour = approximate_polygon(contour, tolerance=2.0).tolist()
+        return contour
 
     n_rows = len(props)
     n_threads = max(16, mp.cpu_count())
@@ -44,14 +44,23 @@ def main():
     parser.add_argument("-k", "--instance_key", required=True)
     parser.add_argument("-o", "--output_path", required=True)
     parser.add_argument("-s", "--semantic_key")
+    parser.add_argument("--roi", nargs=4, type=int)
     args = parser.parse_args()
+
+    if args.roi:
+        roi = np.s_[args.roi[0]:args.roi[1], args.roi[2]:args.roi[3]]
+        global_offset = [args.roi[0], args.roi[2]]
+    else:
+        roi = np.s_[:]
+        global_offset = [0, 0]
+
+    f = zarr.open(args.input_path, mode="r")
+    instances = f[args.instance_key][roi]
+    print(instances.dtype)
 
     def majority_label(regionmask, intensity_image):
         values = intensity_image[regionmask].astype("uint16")
         return np.bincount(values).argmax()
-
-    f = zarr.open(args.input_path, mode="r")
-    instances = f[args.instance_key][:]
 
     print("Compute regionprops ...")
     if args.semantic_key is None:
@@ -59,12 +68,14 @@ def main():
     else:
         semantic = f[args.semantic_key][:]
         props = pd.DataFrame(
-            regionprops_table(instances, semantic, properties=("label", "bbox"), extra_properties=(majority_label,))
+            regionprops_table(
+                instances, semantic, properties=("label", "bbox"), extra_properties=(majority_label,)
+            )
         )
         props = props[props.majority_label == 2]
     props = props.rename(columns={f"bbox-{i}": f"bbox_{i}" for i in range(4)})
 
-    masks = extract_polygons(instances, props)
+    masks = extract_polygons(instances, props, global_offset)
 
     output = {"cells": masks}
     with open(args.output_path, "w") as f:
