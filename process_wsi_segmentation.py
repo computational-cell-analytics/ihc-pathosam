@@ -1,5 +1,6 @@
 import argparse
 import json
+import multiprocessing as mp
 from concurrent import futures
 
 import numpy as np
@@ -28,7 +29,7 @@ def extract_polygons(instances, props):
         return contour.tolist()
 
     n_rows = len(props)
-    n_threads = 8  # TODO CPU count
+    n_threads = max(16, mp.cpu_count())
     with futures.ThreadPoolExecutor(n_threads) as tp:
         masks = list(tqdm(tp.map(extract_mask, range(n_rows)), total=n_rows, desc="Extract Polygons"))
 
@@ -36,6 +37,7 @@ def extract_polygons(instances, props):
 
 
 # TODO does this scale to WSI? Otherwise need to parellize more.
+# TODO support QuPath output compatible format
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input_path", required=True)
