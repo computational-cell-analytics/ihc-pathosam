@@ -1,6 +1,7 @@
 import argparse
 import json
 
+import h5py
 import napari
 import numpy as np
 import zarr
@@ -21,10 +22,25 @@ def _filter_polygons_by_roi(polys, roi):
     return out
 
 
-def _load_segmentation(prediction_path, bbox):
+def _load_masks(prediction_path):
     with open(prediction_path, "r") as f:
-        masks = json.load(f)["cells"]
-    masks = [np.array(mask) for mask in masks]
+        data = json.load(f)
+
+    # Custom format.
+    if "cells" in data:
+        masks = data["cells"]
+        masks = [np.array(mask) for mask in masks]
+        return masks
+
+    # QuPath Format.
+    masks = data["features"]
+    masks = [np.array(mask["geometry"]["coordinates"]).squeeze().T for mask in masks]
+    masks = [np.array([mask[:, 1], mask[:, 0]]).T.copy() for mask in masks]
+    return masks
+
+
+def _load_segmentation(prediction_path, bbox):
+    masks = _load_masks(prediction_path)
 
     # Filter the masks in the BB.
     n_total = len(masks)
@@ -54,21 +70,34 @@ def main():
     parser.add_argument("--segmentation_key")
     args = parser.parse_args()
 
-    wsi = load_tif_as_zarr(args.input_path)
+    input_path = args.input_path
+    if input_path.endswith((".tif", ".tiff")):
+        shape = load_tif_as_zarr(input_path).shape
+        is_tif = True
+    else:
+        with h5py.File(args.input_path, "r") as f:
+            shape = f["s0/image"].shape
+        is_tif = False
+
     if args.center is None:
-        center = [sh // 2 for sh in wsi.shape]
+        center = [sh // 2 for sh in shape]
     else:
         center = args.center
     bbox = tuple(slice(ce - ha, ce + ha) for ce, ha in zip(center, args.halo))
 
     segmentation = _load_segmentation(args.prediction_path, bbox)
-    image = wsi[bbox]
 
     if args.segmentation_path is None:
         original_segmentation = None
     else:
         f = zarr.open(args.segmentation_path, mode="r")
         original_segmentation = f[args.segmentation_key][bbox]
+
+    if is_tif:
+        image = load_tif_as_zarr(args.input_path)[bbox]
+    else:
+        with h5py.File(input_path, "r") as f:
+            image = f["s0/image"][bbox]
 
     v = napari.Viewer()
     v.add_image(image)
