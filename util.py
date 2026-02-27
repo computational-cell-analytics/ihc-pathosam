@@ -98,18 +98,35 @@ def extract_region_instance_id_arrays(json_path, pad=0):
     return out
 
 
-def get_mask(input_path):
-    scale = 3
-    image = load_tif_as_zarr(input_path, scale_level=scale)[:]
+def get_mask(input_path, masking_method="cd8", scale=3):
+    if input_path.endswith((".tif", ".tiff")):
+        image = load_tif_as_zarr(input_path, scale_level=scale)[:]
+        full_shape = load_tif_as_zarr(input_path, scale_level=0).shape[:2]
+    elif input_path.endswith(".h5"):
+        with h5py.File(input_path, "r") as f:
+            image = f[f"s{scale}/image"][:]
+            full_shape = f["s0/image"].shape[:2]
+    else:
+        raise ValueError("Unsupported data format.")
 
-    thresh1 = np.array([230, 230, 230])[None, None]
-    thresh2 = np.array([250, 0, 0])[None, None]
-    thresh3 = np.array([10, 10, 10])[None, None]
-    mask = (image > thresh1).all(axis=-1) | (image > thresh2).all(axis=-1) | (image < thresh3).all(axis=-1)
-    window = (32, 32)
-    mask = uniform_filter(mask.astype("float32"), size=window, mode="reflect")
-    min_mask_fraction = 0.75
-    mask = ~(mask > min_mask_fraction)
+    if masking_method == "cd8":
+        thresh1 = np.array([230, 230, 230])[None, None]
+        thresh2 = np.array([250, 0, 0])[None, None]
+        thresh3 = np.array([10, 10, 10])[None, None]
+        mask = (image > thresh1).all(axis=-1) | (image > thresh2).all(axis=-1) | (image < thresh3).all(axis=-1)
+        window = (32, 32)
+        mask = uniform_filter(mask.astype("float32"), size=window, mode="reflect")
+        min_mask_fraction = 0.75
+        mask = ~(mask > min_mask_fraction)
+    elif masking_method == "pdac":
+        thresh = np.array([230, 230, 230])[None, None]
+        mask = (image > thresh).all(axis=-1)
+        window = (32, 32)
+        mask = uniform_filter(mask.astype("float32"), size=window, mode="reflect")
+        min_mask_fraction = 0.75
+        mask = ~(mask > min_mask_fraction)
+    else:
+        raise ValueError("Invalid masking method: {masking_method}")
 
     # import napari
     # v = napari.Viewer()
@@ -117,7 +134,6 @@ def get_mask(input_path):
     # v.add_labels(mask)
     # napari.run()
 
-    full_shape = load_tif_as_zarr(input_path, scale_level=0).shape[:2]
     mask = ResizedVolume(mask, shape=full_shape)
     return mask
 
@@ -126,7 +142,8 @@ def load_image(input_path):
     ext = Path(input_path).suffix
     if ext == ".h5":
         with h5py.File(input_path, "r") as f:
-            image = f["image"][:]
+            ds = f["image"] if "image" in f else f["s0/image"]
+            image = ds[:]
     elif ext in (".tif", ".tiff"):
         image = load_tif_as_zarr(input_path)
     else:
@@ -135,6 +152,11 @@ def load_image(input_path):
 
 
 if __name__ == "__main__":
-    input_path = "data/philips/cd8/RE-000139-1_1_4-CD8_CRC_CancerScout-2024-07-12T08-43-25.tiff"
-    mask = get_mask(input_path)
-    print(mask.shape)
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_path", "-i", required=True)
+    parser.add_argument("-m", "--masking_method")
+    args = parser.parse_args()
+
+    get_mask(args.input_path, args.masking_method)

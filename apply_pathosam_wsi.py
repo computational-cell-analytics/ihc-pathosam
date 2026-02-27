@@ -51,7 +51,7 @@ def _run_semantic_segmentation(
     )
 
 
-def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_key, semantic, skip_mask, roi):
+def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_key, semantic, mask, roi):
     output_folder = os.path.split(output_path)[0]
     os.makedirs(output_folder, exist_ok=True)
     if os.path.exists(output_path) and output_key in zarr.open(output_path, mode="r"):
@@ -66,7 +66,7 @@ def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_k
     )
 
     tile_shape, halo = (376, 376), (64, 64)
-    mask = None if skip_mask else get_mask(image_path)
+    mask = None if mask in ("None", "none") else get_mask(image_path, masking_method=mask)
 
     dtype = "uint8" if semantic else "uint64"
     shards = tuple(4 * ts for ts in tile_shape)
@@ -97,14 +97,14 @@ def main():
     parser.add_argument("--batch_size", default=16, type=int)
     parser.add_argument("-k", "--output_key", default="segmentation")
     parser.add_argument("--semantic", action="store_true")
-    parser.add_argument("--skip_mask", action="store_true")
+    parser.add_argument("--mask", default="cd8")
     parser.add_argument("--roi", nargs=4, type=int)
     args = parser.parse_args()
 
     apply_pathosam_wsi(
         image_path=args.image_path, output_path=args.output_path, model_path=args.model_path,
         batch_size=args.batch_size, output_key=args.output_key,
-        semantic=args.semantic, skip_mask=args.skip_mask, roi=args.roi,
+        semantic=args.semantic, mask=args.mask, roi=args.roi,
     )
 
 

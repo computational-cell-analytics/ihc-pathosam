@@ -1,7 +1,7 @@
 import argparse
 import os
 
-import h5py
+from elf.io import open_file
 from micro_sam.automatic_segmentation import automatic_instance_segmentation, get_predictor_and_segmenter
 from util import load_image
 
@@ -15,8 +15,8 @@ def apply_pathosam(image_path, output_path, model_path, check, batch_size, outpu
         bb = (slice(roi[0], roi[1]), slice(roi[2], roi[3]))
         image = image[bb]
 
-    if os.path.exists(output_path) and output_key in h5py.File(output_path, "r"):
-        with h5py.File(output_path, "r") as f:
+    if os.path.exists(output_path) and output_key in open_file(output_path, mode="r"):
+        with open_file(output_path, "r") as f:
             segmentation = f[output_key][:]
     else:
         predictor, segmenter = get_predictor_and_segmenter(
@@ -36,7 +36,7 @@ def apply_pathosam(image_path, output_path, model_path, check, batch_size, outpu
         napari.run()
 
     # Write the segmentation.
-    with h5py.File(output_path, "a") as f:
+    with open_file(output_path, mode="a") as f:
         if output_key in f:
             return
         f.create_dataset(output_key, data=segmentation, compression="gzip")
