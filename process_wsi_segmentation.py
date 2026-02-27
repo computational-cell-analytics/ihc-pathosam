@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import multiprocessing as mp
 from concurrent import futures
 
@@ -36,14 +37,38 @@ def extract_polygons(instances, props, global_offset):
     return masks
 
 
-# TODO does this scale to WSI? Otherwise need to parellize more.
-# TODO support QuPath output compatible format
+def _to_qupath_geojson(masks):
+    features = []
+    for obj_id, mask in enumerate(masks, 1):
+        # Switch from yx to xy.
+        mask = np.array(mask)
+        assert mask.shape[1] == 2
+        mask = np.array([mask[:, 1], mask[:, 0]])
+        features.append({
+            "type": "Feature",
+            "properties": {
+                "object_id": int(obj_id),
+                "name": f"mask_{int(obj_id)}",
+                "isLocked": False,
+                "classification": None,
+                "level": 0,
+            },
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [mask.tolist()],
+            },
+        })
+
+    return {"type": "FeatureCollection", "features": features}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("-i", "--input_path", required=True)
     parser.add_argument("-k", "--instance_key", required=True)
     parser.add_argument("-o", "--output_path", required=True)
     parser.add_argument("-s", "--semantic_key")
+    parser.add_argument("-f", "--format", default="custom")
     parser.add_argument("--roi", nargs=4, type=int)
     args = parser.parse_args()
 
@@ -76,7 +101,12 @@ def main():
 
     masks = extract_polygons(instances, props, global_offset)
 
-    output = {"cells": masks}
+    if args.format == "custom":
+        output = {"cells": masks}
+    elif args.format == "qupath":
+        output = _to_qupath_geojson(masks)
+
+    os.makedirs(os.path.split(args.output_path)[0], exist_ok=True)
     with open(args.output_path, "w") as f:
         json.dump(output, f)
 
