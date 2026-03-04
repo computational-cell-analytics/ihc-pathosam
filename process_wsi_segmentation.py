@@ -12,8 +12,22 @@ from skimage.measure import regionprops_table, find_contours, approximate_polygo
 from tqdm import tqdm
 
 
+def _ring_area(coords):
+    # coords: (N,2) closed
+    x = np.asarray([p[0] for p in coords])
+    y = np.asarray([p[1] for p in coords])
+    return 0.5 * abs(np.dot(x[:-1], y[1:]) - np.dot(y[:-1], x[1:]))
+
+
+def _drop_consecutive_duplicates(contour):
+    keep = np.ones(len(contour), dtype=bool)
+    keep[1:] = np.any(contour[1:] != contour[:-1], axis=1)
+    return contour[keep]
+
+
 def extract_polygons(instances, props, global_offset):
     halo = 2
+    min_area = 8
 
     def extract_mask(row_id):
         prop = props.iloc[row_id]
@@ -27,19 +41,26 @@ def extract_polygons(instances, props, global_offset):
         contour[:, 0] += (bbox[0].start + global_offset[0])
         contour[:, 1] += (bbox[1].start + global_offset[1])
 
+        contour = _drop_consecutive_duplicates(contour)
+
         # Disable the global offset for debugging on local crops.
         # contour[:, 0] += bbox[0].start
         # contour[:, 1] += bbox[1].start
 
-        contour_approx = approximate_polygon(contour, tolerance=2.0)
+        contour_approx = approximate_polygon(contour, tolerance=1.0)
+        contour_approx = _drop_consecutive_duplicates(contour_approx)
 
         # Ensure contours have enough points and are closed,
         # otherwise QuPath does not like them.
         if len(contour_approx) > 4:
             contour = contour_approx
-        if (contour[-1] != contour[0]).any():
-            contour = np.concatenate([contour, contour[0, :][None]], axis=0)
-        assert len(contour) >= 4
+
+        if not np.array_equal(contour[0], contour[-1]):
+            contour = np.vstack([contour, contour[0]])
+
+        # Drop small contours that don't work for QuPath.
+        if len(contour) < 4 or _ring_area(contour.tolist()) < min_area:
+            return None
 
         return contour
 
@@ -47,6 +68,7 @@ def extract_polygons(instances, props, global_offset):
     n_threads = max(16, mp.cpu_count())
     with futures.ThreadPoolExecutor(n_threads) as tp:
         masks = list(tqdm(tp.map(extract_mask, range(n_rows)), total=n_rows, desc="Extract Polygons"))
+    masks = [mask for mask in masks if mask is not None]
 
     return masks
 
