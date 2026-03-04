@@ -26,7 +26,21 @@ def extract_polygons(instances, props, global_offset):
         contour = max(contour, key=len)
         contour[:, 0] += (bbox[0].start + global_offset[0])
         contour[:, 1] += (bbox[1].start + global_offset[1])
-        contour = approximate_polygon(contour, tolerance=2.0).tolist()
+
+        # Disable the global offset for debugging on local crops.
+        # contour[:, 0] += bbox[0].start
+        # contour[:, 1] += bbox[1].start
+
+        contour_approx = approximate_polygon(contour, tolerance=2.0)
+
+        # Ensure contours have enough points and are closed,
+        # otherwise QuPath does not like them.
+        if len(contour_approx) > 4:
+            contour = contour_approx
+        if (contour[-1] != contour[0]).any():
+            contour = np.concatenate([contour, contour[0, :][None]], axis=0)
+        assert len(contour) >= 4
+
         return contour
 
     n_rows = len(props)
@@ -41,21 +55,18 @@ def _to_qupath_geojson(masks):
     features = []
     for obj_id, mask in enumerate(masks, 1):
         # Switch from yx to xy.
-        mask = np.array(mask)
         assert mask.shape[1] == 2
-        mask = np.array([mask[:, 1], mask[:, 0]])
+        mask = mask[:, ::-1].astype(float).tolist()
         features.append({
             "type": "Feature",
             "properties": {
                 "object_id": int(obj_id),
                 "name": f"mask_{int(obj_id)}",
-                "isLocked": False,
-                "classification": None,
-                "level": 0,
+                "objectType": "annotation",
             },
             "geometry": {
                 "type": "Polygon",
-                "coordinates": [mask.tolist()],
+                "coordinates": [mask],
             },
         })
 
@@ -100,13 +111,16 @@ def main():
     props = props.rename(columns={f"bbox-{i}": f"bbox_{i}" for i in range(4)})
 
     masks = extract_polygons(instances, props, global_offset)
+    print("Extracted", len(masks), "masks")
 
     if args.format == "custom":
-        output = {"cells": masks}
+        output = {"cells": [mask.tolist() for mask in masks]}
     elif args.format == "qupath":
         output = _to_qupath_geojson(masks)
 
-    os.makedirs(os.path.split(args.output_path)[0], exist_ok=True)
+    out_folder = os.path.split(args.output_path)[0]
+    if out_folder != "":
+        os.makedirs(out_folder, exist_ok=True)
     with open(args.output_path, "w") as f:
         json.dump(output, f)
 
