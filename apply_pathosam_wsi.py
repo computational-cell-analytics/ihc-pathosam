@@ -1,5 +1,6 @@
 import argparse
 import os
+from glob import glob
 from tempfile import TemporaryDirectory
 
 import zarr
@@ -99,13 +100,29 @@ def main():
     parser.add_argument("--semantic", action="store_true")
     parser.add_argument("--mask", default="cd8")
     parser.add_argument("--roi", nargs=4, type=int)
+    parser.add_argument("--pattern")
     args = parser.parse_args()
 
-    apply_pathosam_wsi(
-        image_path=args.image_path, output_path=args.output_path, model_path=args.model_path,
-        batch_size=args.batch_size, output_key=args.output_key,
-        semantic=args.semantic, mask=args.mask, roi=args.roi,
-    )
+    if args.pattern is None:
+        apply_pathosam_wsi(
+            image_path=args.image_path, output_path=args.output_path, model_path=args.model_path,
+            batch_size=args.batch_size, output_key=args.output_key,
+            semantic=args.semantic, mask=args.mask, roi=args.roi,
+        )
+    else:
+        input_folder, output_folder = args.image_path, args.output_path
+        assert os.path.isdir(input_folder)
+        os.makedirs(output_folder, exist_ok=True)
+        assert os.path.exists(output_folder)
+
+        inputs = glob(os.path.join(input_folder, args.pattern))
+        for img_path in inputs:
+            out_path = os.path.join(output_folder, os.path.split(img_path)[1])
+            apply_pathosam_wsi(
+                image_path=img_path, output_path=out_path, model_path=args.model_path,
+                batch_size=args.batch_size, output_key=args.output_key,
+                semantic=args.semantic, mask=args.mask, roi=args.roi,
+            )
 
 
 if __name__ == "__main__":
