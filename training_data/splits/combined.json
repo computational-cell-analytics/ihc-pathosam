@@ -1,0 +1,36 @@
+{
+  "train": [
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000176-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-47-30_tile00.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000176-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-47-30_tile01.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000176-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-47-30_tile02.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000176-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-47-30_tile04.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000176-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-47-30_tile03.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000148-1_1_3-CD3_CRC_CancerScout-2024-07-02T18-33-41_tile00.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000148-1_1_3-CD3_CRC_CancerScout-2024-07-02T18-33-41_tile01.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000148-1_1_3-CD3_CRC_CancerScout-2024-07-02T18-33-41_tile02.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000022-1_1_4-CD8_CRC_CancerScout-2024-07-16T12-31-15_tile02.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000072-1_1_4-CD8_CRC_CancerScout-2024-07-12T11-04-16_tile00.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000022-1_1_4-CD8_CRC_CancerScout-2024-07-16T12-31-15_tile01.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000072-1_1_4-CD8_CRC_CancerScout-2024-07-12T11-04-16_tile02.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000022-1_1_4-CD8_CRC_CancerScout-2024-07-16T12-31-15_tile00.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/empty/RE-000022-1_1_4-CD8_CRC_CancerScout-2024-07-16T12-31-15_tile0.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/empty/RE-000022-1_1_4-CD8_CRC_CancerScout-2024-07-16T12-31-15_tile1.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/empty/RE-000148-1_1_3-CD3_CRC_CancerScout-2024-07-02T18-33-41_tile0.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/empty/RE-000148-1_1_3-CD3_CRC_CancerScout-2024-07-02T18-33-41_tile1.h5"
+  ],
+  "val": [
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000148-1_1_3-CD3_CRC_CancerScout-2024-07-02T18-33-41_tile04.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000148-1_1_3-CD3_CRC_CancerScout-2024-07-02T18-33-41_tile03.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000072-1_1_4-CD8_CRC_CancerScout-2024-07-12T11-04-16_tile01.h5"
+  ],
+  "test": [
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000182-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-31-13_tile00.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000182-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-31-13_tile01.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000182-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-31-13_tile02.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000182-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-31-13_tile03.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd3/RE-000182-1_1_3-CD3_CRC_CancerScout-2024-07-11T16-31-13_tile04.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000113-1_1_4-CD8_CRC_CancerScout-2024-07-12T09-43-17_tile00.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000113-1_1_4-CD8_CRC_CancerScout-2024-07-12T09-43-17_tile01.h5",
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/cancerscout/training_data/v2/cd8/RE-000113-1_1_4-CD8_CRC_CancerScout-2024-07-12T09-43-17_tile02.h5"
+  ]
+}

@@ -1,37 +1,41 @@
+import os
+import shutil
+from glob import glob
 from pathlib import Path
 from time import time
 
+import torch
 from deap.xdict import xdict
-from deap.train import train, evaluate
+from deap_objects.train import train, evaluate
 from deap_objects.utils.util import LabelRemapper, get_object_conf
 
 
-# TODO: what formats do we expect here?
-def get_data_paths():
+def get_data_paths(out_dir, split):
+    image_paths = sorted(glob(os.path.join(out_dir, split, "images", "*.tif")))
+    label_paths = sorted(glob(os.path.join(out_dir, split, "labels", "*.tif")))
+    instance_paths = sorted(glob(os.path.join(out_dir, split, "masks", "*.tif")))
+    assert len(image_paths) > 0
     return image_paths, label_paths, instance_paths
 
 
-# TODO: What is this?
+# This is a list of semantic classes that are actually used.
+# Here we use both foreground classes which are 1 and 2.
 def get_class_ids():
-    pass
+    return [1, 2]
 
 
-def build_run_cfg(
-    dataset,
-    backbone,
-    total_objects,
-    ckpt_dir,
-    out_dir,
-):
+def build_run_cfg(backbone, ckpt_dir, out_dir):
 
-    train_image_paths, train_label_paths, train_instance_paths = get_data_paths()
-    val_image_paths, val_label_paths, val_instance_paths = get_data_paths()
-    test_image_paths, test_label_paths, test_instance_paths = get_data_paths()
+    train_image_paths, train_label_paths, train_instance_paths = get_data_paths(out_dir, split="train")
+    val_image_paths, val_label_paths, val_instance_paths = get_data_paths(out_dir, split="val")
+    test_image_paths, test_label_paths, test_instance_paths = get_data_paths(out_dir, split="test")
 
+    # TODO use all objects. Don't conflate object counts in training and per image.
+    total_objects = 1000
     max_objects, _ = get_object_conf(total_objects, len(train_image_paths))
 
-    n_classes = len(get_class_ids(dataset))
-    label_map = {cid: i + 1 for i, cid in enumerate(get_class_ids(dataset))}
+    n_classes = len(get_class_ids())
+    label_map = {cid: i + 1 for i, cid in enumerate(get_class_ids())}
     label_transform = LabelRemapper(label_map)
 
     inv_label_map = {v: k for k, v in label_map.items()}
@@ -54,6 +58,7 @@ def build_run_cfg(
     )
 
     # model configuration
+    # Max Objects is set to 1000 if not given.
     model_cfg = xdict(
         __class__='deap_objects.models.object_attentive_probing.SelfAttReadouts_o',
         max_objects=max_objects,
@@ -91,7 +96,7 @@ def build_run_cfg(
         ) + model_cfg,
     ) + default
 
-    run_name = f"{dataset}_{backbone}_{total_objects}objects"
+    run_name = f"{backbone}_{total_objects}objects"
 
     semseg_run = xdict(
         name=run_name,
@@ -103,34 +108,30 @@ def build_run_cfg(
     return semseg_run
 
 
-def main(args):
-    ckpt_dir = Path(args.checkpoint_dir)
+def training_and_evaluation(out_dir):
+    checkpoint_dir = "./checkpoints"
+    ckpt_dir = Path(checkpoint_dir)
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
-    out_dir = Path(args.out_dir)
+    out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    weights_path = ckpt_dir / args.weights
+    backbone = "pathoSAM-IHC"
+    semseg_run = build_run_cfg(backbone=backbone, ckpt_dir=ckpt_dir, out_dir=out_dir)
 
-    semseg_run = build_run_cfg(
-        dataset=args.dataset,
-        backbone=args.backbone,
-        total_objects=args.total_objects,
-        ckpt_dir=ckpt_dir,
-        out_dir=out_dir,
-    )
+    weights = semseg_run["name"] + "-weights.pth"
+    weights_path = ckpt_dir / weights
 
+    device = torch.device("cuda")
     if not weights_path.exists():
         print(f"Checkpoint not found: {weights_path}")
         print("Starting training...")
 
         start = time()
-        train(
-            semseg_run,
-            device=args.device,
-            seed=args.seed,
-        )
+        train(semseg_run, device=device)
         print(f"Training finished in {time() - start:.2f}s")
+
+        shutil.move(checkpoint_dir / "last_weights.pth", weights_path)
 
         if not weights_path.exists():
             raise RuntimeError(
@@ -142,7 +143,7 @@ def main(args):
     out = evaluate(
         semseg_run,
         weights=str(weights_path),
-        device=args.device,
+        device=device,
         predict_semseg=True,
     )
 
@@ -156,42 +157,83 @@ def main(args):
     print(f"Results: {out_dir}")
 
 
+def data_preparation(out_dir):
+    import h5py
+    import imageio
+    import numpy as np
+    from nifty.tools import blocking
+
+    tile_shape = (512, 512)
+    halo = [0, 0]
+    full_shape = tuple(ts + ha for ts, ha in zip(tile_shape, halo))
+
+    def _save_split(split, images, labels, instances):
+        assert len(images) == len(labels)
+        assert len(images) == len(instances)
+        root = os.path.join(out_dir, split)
+        image_folder, label_folder, mask_folder = os.path.join(root, "images"), os.path.join(root, "labels"), os.path.join(root, "masks")  # noqa
+        os.makedirs(image_folder, exist_ok=True)
+        os.makedirs(label_folder, exist_ok=True)
+        os.makedirs(mask_folder, exist_ok=True)
+        for i, (im, lab, masks) in enumerate(zip(images, labels, instances)):
+            fname = f"tile-{i}.tif"
+            imageio.imwrite(os.path.join(image_folder, fname), im, compression="zlib")
+            imageio.imwrite(os.path.join(label_folder, fname), lab, compression="zlib")
+            imageio.imwrite(os.path.join(mask_folder, fname), masks, compression="zlib")
+
+    def _create_split(split, images, labels, instances):
+        assert len(images) == len(labels)
+        assert len(images) == len(instances)
+        tiled_images, tiled_labels, tiled_instances = [], [], []
+        for im, lab, masks in zip(images, labels, instances):
+            tiles = blocking((0, 0), im.shape[:2], tile_shape)
+            for tile_id in range(tiles.numberOfBlocks):
+                tile = tiles.getBlockWithHalo(tile_id, halo).outerBlock
+                bb = tuple(slice(beg, end) for beg, end in zip(tile.begin, tile.end))
+                this_masks = masks[bb]
+                shape = this_masks.shape
+                if shape != full_shape:  # Only keep patches with the full shape
+                    continue
+                max_id = this_masks.max()
+                if max_id == 0:  # Skip empty patches
+                    continue
+                tiled_images.append(im[bb])
+                tiled_labels.append(lab[bb])
+                tiled_instances.append(this_masks)
+        print("Create", split, "split with", len(tiled_images), "images")
+        _save_split(split, tiled_images, tiled_labels, tiled_instances)
+
+    image_key = "image"
+    label_key = "labels/silver/semantic"
+    instance_key = "labels/silver/nuclei"
+
+    train_paths = [
+        "data/annotated_data/cd8/RE-000072-1_1_4-CD8_CRC_CancerScout-2024-07-12T11-04-16_tile00.h5",
+        "data/annotated_data/cd8/RE-000072-1_1_4-CD8_CRC_CancerScout-2024-07-12T11-04-16_tile01.h5",
+    ]
+    images, labels, instances = [], [], []
+    for path in train_paths:
+        with h5py.File(path, "r") as f:
+            images.append(f[image_key][:])
+            labels.append(f[label_key][:])
+            instances.append(f[instance_key][:])
+    _create_split("train", images, labels, instances)
+
+    path = "data/annotated_data/cd8/RE-000072-1_1_4-CD8_CRC_CancerScout-2024-07-12T11-04-16_tile02.h5"
+    val_bb, test_bb = np.s_[:4000], np.s_[4000:]
+    for split, bb in zip(["val", "test"], [val_bb, test_bb]):
+        with h5py.File(path, "r") as f:
+            image = f[image_key][bb]
+            lab = f[label_key][bb]
+            masks = f[instance_key][bb]
+        _create_split(split, [image], [lab], [masks])
+
+
+def main():
+    out_dir = "./data/obap"
+    # data_preparation(out_dir)
+    training_and_evaluation(out_dir)
+
+
 if __name__ == "__main__":
-    import argparse
-
-    parser = argparse.ArgumentParser()
-    # TODO: How do we use a customly initialized backbone?
-    parser.add_argument('--backbone', type=str, default='SAM')
-    # TODO: How do we train on all available objects?
-    parser.add_argument('--total_objects', type=int, default=100)
-
-    parser.add_argument(
-        '--checkpoint_dir',
-        type=str,
-        required=True,
-        help="Directory where checkpoints are stored / should be written"
-    )
-    parser.add_argument(
-        '--weights',
-        type=str,
-        default='last_weights.pth',
-        help="Checkpoint filename"
-    )
-    parser.add_argument(
-        '--out_dir',
-        type=str,
-        default='inference_results'
-    )
-    parser.add_argument(
-        '--device',
-        type=str,
-        default='cuda'
-    )
-    parser.add_argument(
-        '--seed',
-        type=int,
-        default=42
-    )
-
-    args = parser.parse_args()
-    main(args)
+    main()

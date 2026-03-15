@@ -1,6 +1,7 @@
 import argparse
 import os
 from glob import glob
+from pathlib import Path
 from tempfile import TemporaryDirectory
 
 import zarr
@@ -117,7 +118,7 @@ def main():
 
         inputs = glob(os.path.join(input_folder, args.pattern))
         for img_path in inputs:
-            out_path = os.path.join(output_folder, os.path.split(img_path)[1])
+            out_path = os.path.join(output_folder, f"{Path(img_path).stem}.zarr")
             apply_pathosam_wsi(
                 image_path=img_path, output_path=out_path, model_path=args.model_path,
                 batch_size=args.batch_size, output_key=args.output_key,
