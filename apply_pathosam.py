@@ -22,7 +22,7 @@ def apply_pathosam(image_path, output_path, model_path, check, batch_size, outpu
         predictor, segmenter = get_predictor_and_segmenter(
             model_type="vit_b_histopathology", is_tiled=True, checkpoint=model_path,
         )
-        tile_shape, halo = (376, 376), (64, 64)
+        tile_shape, halo = (384, 384), (64, 64)
         segmentation = automatic_instance_segmentation(
             predictor, segmenter, image, tile_shape=tile_shape,
             halo=halo, verbose=True, ndim=2, batch_size=batch_size,

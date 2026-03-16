@@ -6,10 +6,10 @@ from tempfile import TemporaryDirectory
 
 import zarr
 from elf.wrapper import RoiWrapper
-from micro_sam.automatic_segmentation import automatic_instance_segmentation, get_predictor_and_segmenter
+from micro_sam.automatic_segmentation import automatic_instance_segmentation
 from micro_sam.util import precompute_image_embeddings
 from patho_sam.semantic_segmentation import get_semantic_predictor_and_segmenter
-from util import load_image, get_mask
+from util import load_image, get_mask, get_instance_segmentation_model
 
 
 def _get_predictor_and_segmenter(model_type, model_path, semantic):
@@ -19,9 +19,7 @@ def _get_predictor_and_segmenter(model_type, model_path, semantic):
         )
 
     else:
-        predictor, segmenter = get_predictor_and_segmenter(
-            model_type="vit_b_histopathology", is_tiled=True, checkpoint=model_path,
-        )
+        predictor, segmenter = get_instance_segmentation_model(model_path)
 
     return predictor, segmenter
 
@@ -67,7 +65,7 @@ def apply_pathosam_wsi(image_path, output_path, model_path, batch_size, output_k
         model_type="vit_b_histopathology", model_path=model_path, semantic=semantic,
     )
 
-    tile_shape, halo = (376, 376), (64, 64)
+    tile_shape, halo = (384, 384), (64, 64)
     mask = None if mask in ("None", "none") else get_mask(image_path, masking_method=mask)
 
     dtype = "uint8" if semantic else "uint64"

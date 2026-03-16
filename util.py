@@ -1,11 +1,15 @@
 import json
+from collections import OrderedDict
 from pathlib import Path
 
 import h5py
 import numpy as np
 import tifffile
+import torch
 import zarr
 
+from micro_sam.automatic_segmentation import get_predictor_and_segmenter
+from micro_sam.util import get_sam_model
 from skimage.draw import polygon as draw_polygon
 from scipy.ndimage import uniform_filter
 from elf.wrapper.resized_volume import ResizedVolume
@@ -149,6 +153,30 @@ def load_image(input_path):
     else:
         raise ValueError(f"Unsupported file extension: {ext}.")
     return image
+
+
+def get_instance_segmentation_model(checkpoint_path, device=torch.device("cuda")):
+    state = torch.load(checkpoint_path, map_location=device, weights_only=False)["model_state"]
+    if any(k.startswith("sam.image_encoder") for k in state.keys()):
+        predictor, segmenter = get_predictor_and_segmenter(
+            model_type="vit_b_histopathology", is_tiled=True, checkpoint=checkpoint_path,
+        )
+    else:
+        predictor = get_sam_model(model_type="vit_b_histopathology", device=device)
+        encoder_state = OrderedDict(
+            [(k[len("encoder."):], v) for k, v in state.items() if k.startswith("encoder")]
+        )
+        predictor.model.image_encoder.load_state_dict(encoder_state)
+
+        decoder_state = {"decoder_state": OrderedDict(
+            [(k, v) for k, v in state.items() if not k.startswith("encoder")]
+        )}
+        predictor, segmenter = get_predictor_and_segmenter(
+            model_type="vit_b_histopathology", is_tiled=True,
+            predictor=predictor, state=decoder_state, device=device,
+            segmentation_mode="ais",
+        )
+    return predictor, segmenter
 
 
 if __name__ == "__main__":
