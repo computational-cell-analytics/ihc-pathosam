@@ -8,7 +8,7 @@ import zarr
 from torchvision import transforms
 
 
-def get_model_path(model_folder="/mnt/lustre-grete/usr/u12086/models/hugging-face/mahmood-lab/uni-v2"):
+def get_model_path(model_folder="/mnt/vast-nhr/projects/cidas/cca/models/univ2"):
     filename = "pytorch_model.bin"
     model_path = os.path.join(model_folder, filename)
     if os.path.exists(model_path):
