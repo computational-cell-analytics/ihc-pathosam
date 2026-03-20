@@ -5,6 +5,8 @@ This repository contains scripts for IHC segmentation in histopathology with [Pa
 The most important scripts are:
 
 `apply_pathosam_wsi.py`: To apply a PathoSAM model on a WSI image. The path to the WSI and the PathoSAM model can be specified via CLI.
+The script supports both instance segmentation and semantic segmentaiton (via `--semantic`) and, in the case of instance segmentaiton,
+additional application of a classification model (via `--classification_model`). Some more arguments are supported.
 
 `extract_training_data.py`: To extract the training masks and ROIs from the JSON and WSIs and to combine them with PathoSAM predictions for a silver ground-truth of all nuclei, and for semantic labels distinguishing IHC positive and negative labels.
 
@@ -13,6 +15,8 @@ The most important scripts are:
 `train_semantic_segmentation_model.py`: Finetune a model for semantic segmentation (IHC positive vs. negative nuclei).
 
 `process_wsi_segmentation.py`: Extract polygon list from WSI segmentation result and (optionally) filter instance segmentation with semantic segmentation.
+
+Some additional scripts for training data and evaluation are contained in the `training_data` folder.
 
 
 ## Set-up

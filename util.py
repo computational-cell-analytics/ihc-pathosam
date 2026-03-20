@@ -1,4 +1,5 @@
 import json
+import os
 from collections import OrderedDict
 from pathlib import Path
 
@@ -177,6 +178,25 @@ def get_instance_segmentation_model(checkpoint_path, device=torch.device("cuda")
             segmentation_mode="ais",
         )
     return predictor, segmenter
+
+
+def get_obap_model(model_path):
+    from deap.xdict import xdict
+
+    max_objects = 1000
+    name = os.path.basename(os.path.split(model_path)[0])
+    backbone = f"pathoSAM-IHC-{name}"
+    n_classes = 2
+    model_cfg = xdict(
+        __class__='deap_objects.models.object_attentive_probing.SelfAttReadouts_o',
+        max_objects=max_objects,
+        dim=32,
+        inp_img_size=1024,
+        up=(2, 2, 2),
+        backbone_name=backbone,
+        outputs=(('class', n_classes),),
+    )
+    return model_cfg
 
 
 if __name__ == "__main__":

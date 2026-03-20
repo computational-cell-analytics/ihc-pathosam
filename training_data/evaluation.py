@@ -13,7 +13,7 @@ from micro_sam.automatic_segmentation import automatic_instance_segmentation
 from patho_sam.semantic_segmentation import get_semantic_predictor_and_segmenter
 
 sys.path.append("..")
-from util import get_instance_segmentation_model  # noqa
+from util import get_instance_segmentation_model, get_obap_model  # noqa
 
 DEFAULT_INPUT = "splits/combined.json"
 
@@ -60,7 +60,24 @@ def filter_segmentation(instances, semantic):
     return filtered
 
 
-def run_prediction(input_path, instance_model_path, semantic_model_path, cache):
+def run_classification_model(image, segmentation, predictor, classification_model_path, tile_shape, halo):
+    from deap_objects.inference import run_inference, project_to_semantic_segmentation
+
+    model_cfg = get_obap_model(classification_model_path)
+    class_pred = run_inference(
+        model_cfg, classification_model_path,
+        image, segmentation,
+        batch_size=8,
+        tile_shape=tile_shape, halo=halo,
+        predictor=predictor,
+    )
+    semantic = project_to_semantic_segmentation(segmentation, class_pred)
+    return semantic
+
+
+def run_prediction(input_path, instance_model_path, semantic_model_path, classification_model_path, cache):
+    assert not ((semantic_model_path is not None) and (classification_model_path is not None))
+
     instance_model_name = Path(instance_model_path).parent.stem
     cache_folder = f"./data/cache/{instance_model_name}"
     if semantic_model_path is not None:
@@ -84,9 +101,14 @@ def run_prediction(input_path, instance_model_path, semantic_model_path, cache):
     )
 
     # Filter with semantic model if specified.
-    if semantic_model_path is not None:
+    if semantic_model_path is not None or classification_model_path is not None:
         instances = pred.copy()
-        semantic = run_semantic_segmentation(image, semantic_model_path, tile_shape, halo)
+        if semantic_model_path is not None:
+            semantic = run_semantic_segmentation(image, semantic_model_path, tile_shape, halo)
+        else:
+            semantic = run_classification_model(
+                image, instances, predictor, classification_model_path, tile_shape, halo
+            )
         pred = filter_segmentation(instances, semantic)
         if cache:
             os.makedirs(cache_folder, exist_ok=True)
@@ -139,13 +161,13 @@ def _aggregate(vals, term):
     return np.mean(aggregated)
 
 
-def run_eval(input_path, instance_model, semantic_model, check, cache):
+def run_eval(input_path, instance_model, semantic_model, classification_model, check, cache):
     with open(input_path, "r") as f:
         test_paths = json.load(f)["test"]
 
     msas, sa50s, sa75s = {}, {}, {}
     for path in test_paths:
-        pred, cache_path = run_prediction(path, instance_model, semantic_model, cache)
+        pred, cache_path = run_prediction(path, instance_model, semantic_model, classification_model, cache)
         msa, sa50, sa75 = eval_image(path, pred, check, cache_path)
         msas[path] = msa
         sa50s[path] = sa50
@@ -166,11 +188,12 @@ def main():
     parser.add_argument("--input", "-i", default=DEFAULT_INPUT)
     parser.add_argument("--instance_model", required=True)
     parser.add_argument("--semantic_model")
+    parser.add_argument("--classification_model")
     parser.add_argument("--cache", action="store_true")
     parser.add_argument("--check", action="store_true")
 
     args = parser.parse_args()
-    run_eval(args.input, args.instance_model, args.semantic_model, args.check, args.cache)
+    run_eval(args.input, args.instance_model, args.semantic_model, args.classification_model, args.check, args.cache)
 
 
 if __name__ == "__main__":

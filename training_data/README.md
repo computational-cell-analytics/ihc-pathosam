@@ -1,6 +1,16 @@
 
 # Eval results
 
+Concise overview (SA50):
+| Model    | CD3    | CD8    |
+| Initial  | 0.4326 | 0.4230 |
+| CD3      | 0.4933 | 0.3903 |
+| CD8      | 0.5282 | 0.5199 |
+| Combined | 0.5338 | 0.5082 |
+| Final    | 0.6334 | 0.4956 |
+
+## For instance segmentation + semantic segmentation
+
 Initial model:
 mSA : 0.2506360695006256 (cd3) 0.20166520796685364 (cd8)
 SA50 : 0.43263041711244965 (cd3) 0.42306736072410395 (cd8)
@@ -26,3 +36,15 @@ mSA : 0.4039803055160647 (cd3) 0.24998782727571442 (cd8)
 SA50 : 0.6334147174033533 (cd3) 0.49569712563767804 (cd8)
 SA75 : 0.44824927242130136 (cd3) 0.23006121597406146 (cd8)
 (the test splits are part of its training data, so this is just a sanity check, real comparison doesn't make sense.)
+
+## For instance segmentation + ObAP based segmentation
+
+Combined model:
+mSA : 0.053486273885651914 (cd3) 0.01047830492292061 (cd8)
+SA50 : 0.09611752537985375 (cd3) 0.01939593738202547 (cd8)
+SA75 : 0.05552373320711422 (cd3) 0.009385359029437941 (cd8)
+
+Final model:
+mSA : 0.282018890079696 (cd3) 0.22054734793539665 (cd8)
+SA50 : 0.42349683897390716 (cd3) 0.42488424078321146 (cd8)
+SA75 : 0.3306861848431179 (cd3) 0.2101400751521817 (cd8)
