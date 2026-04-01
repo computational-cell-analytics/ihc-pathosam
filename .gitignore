@@ -3,3 +3,4 @@ data/
 checkpoints/
 logs/
 slurm*.out
+.claude/

@@ -1,0 +1,12 @@
+{
+  "train": [
+    "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/extracted_data/H3K27ac Pixel Patches/TM_11_KFO_H3K27ac_IHC.vsi_-_20x_BF_01_(1,_x=52057,_y=38389,_w=2000,_h=2000).h5",
+    "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/extracted_data/H3K27ac Pixel Patches/TM_90_KFO_H3K27ac_IHC.vsi_-_20x_BF_01_(1,_x=16460,_y=22159,_w=2000,_h=2000).h5",
+    "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/extracted_data/H3K27ac Pixel Patches/TM_11_KFO_H3K27ac_IHC.vsi_-_20x_BF_01_(1,_x=25695,_y=22673,_w=2001,_h=2001).h5",
+    "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/extracted_data/H3K27ac Pixel Patches/TM_90_KFO_H3K27ac_IHC.vsi_-_20x_BF_01_(1,_x=17598,_y=44915,_w=2000,_h=2000).h5"
+  ],
+  "val": [
+    "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/extracted_data/H3K27ac Pixel Patches/TM_90_KFO_H3K27ac_IHC.vsi_-_20x_BF_01_(1,_x=15506,_y=19056,_w=2000,_h=2000).h5",
+    "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/extracted_data/H3K27ac Pixel Patches/TM_11_KFO_H3K27ac_IHC.vsi_-_20x_BF_01_(1,_x=43576,_y=43909,_w=2000,_h=2000).h5"
+  ]
+}
