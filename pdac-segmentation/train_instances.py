@@ -1,6 +1,6 @@
 from micro_sam.training import train_instance_segmentation
 
-from util import get_instance_loaders
+from _util import get_instance_loaders
 
 
 def run_training():
