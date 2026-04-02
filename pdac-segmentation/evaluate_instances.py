@@ -84,14 +84,6 @@ def main():
     args = parser.parse_args()
     run_eval(DEFAULT_MODEL if args.finetuned else None, args.split_json, args.cache)
 
-    # Default vit_b_histopathology (AIS):
-    # python evaluate_instances.py
-    # mSA: 0.1378, SA50: 0.2879, SA75: 0.1182
-
-    # Finetuned model (AIS):
-    # python evaluate_instances.py --finetuned
-    # mSA: 0.3135, SA50: 0.5235, SA75: 0.3325
-
 
 if __name__ == "__main__":
     main()

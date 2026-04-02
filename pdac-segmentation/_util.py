@@ -3,6 +3,7 @@ import random
 from pathlib import Path
 
 import h5py
+import numpy as np
 
 import torch_em
 from micro_sam.training import default_sam_loader
@@ -109,6 +110,28 @@ def get_loaders(label_key, split_json=SPLIT_JSON, batch_size=4, n_train=800, n_v
     )
 
     return train_loader, val_loader
+
+
+def get_class_weights(label_key, split_json=SPLIT_JSON, num_classes=None):
+    """Compute balanced class weights from pixel frequencies in the training split."""
+    train_paths, _ = get_split(split_json=split_json)
+
+    counts = None if num_classes is None else np.zeros(num_classes, dtype=np.int64)
+    for path in train_paths:
+        with h5py.File(path, "r") as f:
+            labels = f[label_key][:]
+
+        bincount = np.bincount(labels.ravel(), minlength=0 if counts is None else len(counts))
+        if counts is None:
+            counts = bincount.astype(np.int64, copy=False)
+        else:
+            counts += bincount[:len(counts)]
+
+    if counts is None or np.any(counts == 0):
+        raise ValueError(f"Cannot compute class weights from counts: {counts}")
+
+    total = counts.sum()
+    return (total / (len(counts) * counts)).astype(np.float32).tolist()
 
 
 def get_instance_loaders(label_key, split_json=SPLIT_JSON, batch_size=4, n_train=800, n_val=80):

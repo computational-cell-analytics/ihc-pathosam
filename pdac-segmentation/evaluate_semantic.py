@@ -17,7 +17,7 @@ from torch_em.util.prediction import predict_with_halo
 from _util import get_split
 
 SPLIT_JSON = Path(__file__).parent / "splits" / "split.json"
-DEFAULT_MODEL = "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/models/v1/checkpoints/pathosam-nuclei-semantic/best.pt"  # noqa
+DEFAULT_MODEL = "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/models/v1/checkpoints/pathosam-nuclei-semantic-class-weighted/best.pt"  # noqa
 NUM_CLASSES = 3
 
 
@@ -111,13 +111,6 @@ def main():
     parser.add_argument("--cache", action="store_true")
     args = parser.parse_args()
     run_eval(DEFAULT_MODEL, args.split_json, args.cache)
-
-    # Results from finetuned model for semantic segmentation:
-    # Per-class dice score:
-    # background: 0.9717
-    # negative cells: 0.6637
-    # positive cells: 0.8122
-    # Mean Dice: 0.8159
 
 
 if __name__ == "__main__":
