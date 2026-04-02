@@ -11,7 +11,8 @@ Results:
 2. Instance Segmentation (Finetuned starting from PathoSAM) (_segmentation accuracy reported_):
     - mSA: 0.3135, SA50: 0.5235, SA75: 0.3325
 3. Semantic Segmentation (Finetuned starting from PathoSAM) (_dice score reported_):
-    - background: 0.9717, negative cells: 0.6637, positive cells: 0.8122, mean: 0.8159
+    - background: 0.9717, negative cells: 0.6637, positive cells: 0.8122, mean: 0.8159 (unweighted)
+    - background: 0.9506, negative cells: 0.6420, positive cells: 0.7773, mean: 0.7900 (weighted)
 
 Next Steps:
 1. Add class weighting for positive / negative cells.
