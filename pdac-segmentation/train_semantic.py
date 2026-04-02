@@ -7,7 +7,7 @@ from micro_sam.instance_segmentation import get_unetr
 
 from patho_sam.training import SemanticInstanceTrainer
 
-from _util import get_loaders
+from _util import get_class_weights, get_loaders
 
 
 def run_training():
@@ -19,6 +19,8 @@ def run_training():
 
     # Hyperparameters for training
     num_classes = 3
+    class_weights = get_class_weights(label_key, num_classes=num_classes)  # ca. [0.4, 6.5, 3.1]
+    name += "-class-weighted"
 
     # Get the trainable Segment Anything Model.
     model, state = sam_training.get_trainable_sam_model(
@@ -39,7 +41,7 @@ def run_training():
 
     # All other stuff we need for training
     optimizer = torch.optim.AdamW(unetr.parameters(), lr=5e-5)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.9, patience=5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, factor=0.9, patience=10)
 
     # This class creates all the training data for each batch (inputs and semantic labels)
     convert_inputs = sam_training.util.ConvertToSemanticSamInputs()
@@ -57,6 +59,7 @@ def run_training():
         compile_model=False,
         convert_inputs=convert_inputs,
         num_classes=num_classes,
+        class_weights=class_weights,
         dice_weight=0,
         device=torch.device("cuda"),
         save_root=save_root,
