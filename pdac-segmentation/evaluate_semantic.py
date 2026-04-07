@@ -17,7 +17,7 @@ from torch_em.util.prediction import predict_with_halo
 from _util import get_split
 
 SPLIT_JSON = Path(__file__).parent / "splits" / "split.json"
-DEFAULT_MODEL = "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/models/v1/checkpoints/pathosam-nuclei-semantic-class-weighted/best.pt"  # noqa
+DEFAULT_MODEL = "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/models/v1/checkpoints/pathosam-nuclei-semantic--practical-class-weighted/best.pt"  # noqa
 NUM_CLASSES = 3
 
 

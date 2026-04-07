@@ -19,8 +19,9 @@ def run_training():
 
     # Hyperparameters for training
     num_classes = 3
-    class_weights = get_class_weights(label_key, num_classes=num_classes)  # ca. [0.4, 6.5, 3.1]
-    name += "-class-weighted"
+    # class_weights = get_class_weights(label_key, num_classes=num_classes)  # ca. [0.4, 6.5, 3.1]
+    class_weights = [1, 3, 2]
+    name += "--practical-class-weighted"
 
     # Get the trainable Segment Anything Model.
     model, state = sam_training.get_trainable_sam_model(
