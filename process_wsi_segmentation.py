@@ -3,6 +3,8 @@ import json
 import os
 import multiprocessing as mp
 from concurrent import futures
+from glob import glob
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -95,35 +97,19 @@ def _to_qupath_geojson(masks):
     return {"type": "FeatureCollection", "features": features}
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--input_path", required=True)
-    parser.add_argument("-k", "--instance_key", required=True)
-    parser.add_argument("-o", "--output_path", required=True)
-    parser.add_argument("-s", "--semantic_key")
-    parser.add_argument("-f", "--format", default="custom")
-    parser.add_argument("--roi", nargs=4, type=int)
-    args = parser.parse_args()
-
-    if args.roi:
-        roi = np.s_[args.roi[0]:args.roi[1], args.roi[2]:args.roi[3]]
-        global_offset = [args.roi[0], args.roi[2]]
-    else:
-        roi = np.s_[:]
-        global_offset = [0, 0]
-
-    f = zarr.open(args.input_path, mode="r")
-    instances = f[args.instance_key][roi]
+def process_wsi(input_path, output_path, instance_key, semantic_key, format_, roi, global_offset):
+    f = zarr.open(input_path, mode="r")
+    instances = f[instance_key][roi]
 
     def majority_label(regionmask, intensity_image):
         values = intensity_image[regionmask].astype("uint16")
         return np.bincount(values).argmax()
 
     print("Compute regionprops ...")
-    if args.semantic_key is None:
+    if semantic_key is None:
         props = pd.DataFrame(regionprops_table(instances, properties=("label", "bbox")))
     else:
-        semantic = f[args.semantic_key][:]
+        semantic = f[semantic_key][:]
         props = pd.DataFrame(
             regionprops_table(
                 instances, semantic, properties=("label", "bbox"), extra_properties=(majority_label,)
@@ -135,16 +121,52 @@ def main():
     masks = extract_polygons(instances, props, global_offset)
     print("Extracted", len(masks), "masks")
 
-    if args.format == "custom":
+    if format_ == "custom":
         output = {"cells": [mask.tolist() for mask in masks]}
-    elif args.format == "qupath":
+    elif format_ == "qupath":
         output = _to_qupath_geojson(masks)
+    else:
+        raise ValueError(f"Invalid format: {format_}, choose one of 'custom', 'qupath'.")
 
-    out_folder = os.path.split(args.output_path)[0]
+    out_folder = os.path.split(output_path)[0]
     if out_folder != "":
         os.makedirs(out_folder, exist_ok=True)
-    with open(args.output_path, "w") as f:
+    with open(output_path, "w") as f:
         json.dump(output, f)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-i", "--input_path", required=True)
+    parser.add_argument("-k", "--instance_key", required=True)
+    parser.add_argument("-o", "--output_path", required=True)
+    parser.add_argument("-s", "--semantic_key")
+    parser.add_argument("-f", "--format", default="custom")
+    parser.add_argument("--pattern")
+    parser.add_argument("--roi", nargs=4, type=int)
+    args = parser.parse_args()
+
+    if args.roi:
+        roi = np.s_[args.roi[0]:args.roi[1], args.roi[2]:args.roi[3]]
+        global_offset = [args.roi[0], args.roi[2]]
+    else:
+        roi = np.s_[:]
+        global_offset = [0, 0]
+
+    if args.pattern is None:
+        process_wsi(
+            args.input_path, args.output_path, args.instance_key, args.semantic_key, args.format, roi, global_offset
+        )
+    else:
+        inputs = sorted(glob(os.path.join(args.input_path, "**", args.pattern), recursive=True))
+        output_root = args.output_path
+        for input_path in tqdm(inputs):
+            fname = Path(input_path).stem
+            folder = os.path.split(os.path.relpath(input_path, args.input_path))[0]
+            output_path = os.path.join(output_root, folder, f"{fname}.json")
+            process_wsi(
+                input_path, output_path, args.instance_key, args.semantic_key, args.format, roi, global_offset
+            )
 
 
 if __name__ == "__main__":

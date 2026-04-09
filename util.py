@@ -105,12 +105,15 @@ def extract_region_instance_id_arrays(json_path, pad=0):
 
 def get_mask(input_path, masking_method="cd8", scale=3):
     if input_path.endswith((".tif", ".tiff")):
+        full_shape = load_tif_as_zarr(input_path, scale_level=0).shape
         image = load_tif_as_zarr(input_path, scale_level=scale)[:]
-        full_shape = load_tif_as_zarr(input_path, scale_level=0).shape[:2]
+    elif input_path.endswith(".zarr"):
+        full_shape = zarr.open(input_path, mode="r")["s0/image"].shape[:2]
+        image = zarr.open(input_path, mode="r")[f"s{scale}/image"][:]
     elif input_path.endswith(".h5"):
         with h5py.File(input_path, "r") as f:
-            image = f[f"s{scale}/image"][:]
             full_shape = f["s0/image"].shape[:2]
+            image = f[f"s{scale}/image"][:]
     else:
         raise ValueError("Unsupported data format.")
 
@@ -149,6 +152,8 @@ def load_image(input_path):
         with h5py.File(input_path, "r") as f:
             ds = f["image"] if "image" in f else f["s0/image"]
             image = ds[:]
+    elif ext == ".zarr":
+        image = zarr.open(input_path, mode="r")["s0/image"]
     elif ext in (".tif", ".tiff"):
         image = load_tif_as_zarr(input_path)
     else:
