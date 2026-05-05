@@ -146,19 +146,24 @@ def process_file(h5_path, models, gpu_ids, overwrite):
 
     for stage, model in models.items():
         out_key = f"predictions/pathology/{stage}"
+        seg_key = f"predictions/pathology/{stage}_labels"
         with h5py.File(h5_path, "a") as f:
             if out_key in f:
                 if not overwrite:
                     print(f"  [{stage}] skip (already exists)")
                     continue
                 del f[out_key]
+                if seg_key in f:
+                    del f[seg_key]
 
         output = run_stage(image, model, stage, gpu_ids)
+        labels = np.argmax(output, axis=0).astype(np.uint8)
 
         with h5py.File(h5_path, "a") as f:
             f.create_dataset(out_key, data=output, compression="gzip")
+            f.create_dataset(seg_key, data=labels, compression="gzip")
 
-        print(f"  [{stage}] saved  shape={output.shape}")
+        print(f"  [{stage}] saved  probs={output.shape}  labels={labels.shape}")
 
 
 def main():
