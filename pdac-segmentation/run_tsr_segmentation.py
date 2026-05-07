@@ -1,35 +1,41 @@
-"""Run all pathology segmentation stages on h5 split files.
+"""Run all pathology segmentation stages on H&E WSIs stored as zarr.
 
-For each h5 file in the split, reads raw (H, W, C) uint8 and runs the
-TB, epithelium, and multi-tissue models. Predictions are written back under
-'predictions/pathology/<stage>' as (n_classes, H, W) float32.
+For each .zarr in HE_ZARR_DIR, reads s{scale}/image lazily and runs the TB,
+epithelium, and multi-tissue models. Per-stage probabilities are streamed to a
+temporary on-disk zarr in SEG_OUTPUT_DIR (deleted after argmax), so RAM stays
+bounded to one block at a time. Final labels are written to SEG_OUTPUT_DIR.
 
 Usage:
-    python run_pathology_segmentation.py
-    python run_pathology_segmentation.py --split train --overwrite
+    python run_tsr_segmentation.py
+    python run_tsr_segmentation.py --name TM11 --scale 0 --overwrite
 
 Connected to https://doi.org/10.1371/journal.pone.0301969.
 """
 
-import argparse
-import json
 import os
+import argparse
 from pathlib import Path
 
-import h5py
+import yaml
+import zarr
 import numpy as np
+
 import torch
 import torch.nn as nn
-import yaml
-import segmentation_models_pytorch as smp
-from huggingface_hub import snapshot_download
 
 from torch_em.util.prediction import predict_with_halo
 
+import segmentation_models_pytorch as smp
+
+from huggingface_hub import snapshot_download
+
 
 HF_REPO_ID = "PierpaoloV93/pathology-segmentation-models"
-SPLIT_JSON = Path(__file__).parent / "splits" / "split.json"
 MODELS_DIR = os.path.expanduser("~/.cache/ihc_pathosam/pathology-segmentation-models")
+HE_ZARR_DIR = Path("/mnt/vast-nhr/projects/nim00007/data/histopatho/pdac-kfo/data_20260310/converted_zarr_he")
+SEG_OUTPUT_DIR = Path(
+    "/mnt/vast-nhr/projects/nim00007/data/histopatho/pdac-kfo/data_20260310/converted_zarr_he_tissue_segmentation"
+)
 
 STAGES = {
     "tb": {
@@ -130,67 +136,103 @@ def load_all_models(device):
     return models
 
 
+class _ArgmaxAccumulator:
+    """Receives per-block softmax predictions and writes argmax labels directly.
+
+    predict_with_halo writes non-overlapping blocks, so each pixel is written
+    exactly once - no running-max needed. Only a single (H, W) uint8 array is kept.
+    """
+
+    def __init__(self, n_classes, h, w):
+        self.labels = np.zeros((h, w), dtype=np.uint8)
+        self.shape = (n_classes, h, w)
+        self.ndim = 3
+        self.dtype = np.dtype("float32")
+
+    def __setitem__(self, idx, val):
+        _, h_sl, w_sl = idx
+        self.labels[h_sl, w_sl] = val.argmax(axis=0).astype(np.uint8)
+
+
 def run_stage(image, model, stage, gpu_ids):
     halo = STAGES[stage]["halo"]
     block_shape = (512 - 2 * halo[0], 512 - 2 * halo[1])
-    return predict_with_halo(
-        image, model, gpu_ids=gpu_ids, block_shape=block_shape, halo=halo, with_channels=True, preprocess=lambda x: x,
+    n_classes = model.out_channels
+    _, h, w = image.shape
+
+    acc = _ArgmaxAccumulator(n_classes, h, w)
+    predict_with_halo(
+        image, model, gpu_ids=gpu_ids, block_shape=block_shape, halo=halo,
+        with_channels=True, preprocess=lambda x: x, output=acc,
     )
+    return acc.labels
 
 
-def process_file(h5_path, models, gpu_ids, overwrite):
-    print(f"\n{Path(h5_path).name}")
-    with h5py.File(h5_path, "r") as f:
-        raw = f["raw"][:]
-    image = raw[..., :3].transpose(2, 0, 1).astype(np.float32) / 255.0
+class _Image:
+    """Loads (H, W, C) uint8 zarr into RAM once, serves (C, H, W) float32 blocks on demand.
+
+    Loading as uint8 (~24 GB at s0) avoids the ~96 GB float32 footprint while keeping
+    all block reads in RAM so inference is not bottlenecked by network filesystem I/O.
+    """
+
+    def __init__(self, arr):
+        print("  Loading image to RAM (uint8) ...")
+        self._raw = arr[:]
+        h, w, c = self._raw.shape
+        self.shape = (c, h, w)
+        self.ndim = 3
+        self.dtype = np.dtype("float32")
+
+    def __getitem__(self, idx):
+        c_idx, h_idx, w_idx = idx
+        crop = self._raw[h_idx, w_idx, :]
+        return crop.transpose(2, 0, 1).astype(np.float32)[c_idx] / 255.0
+
+
+def process_zarr(zarr_path, models, gpu_ids, scale, overwrite):
+    name = Path(zarr_path).name
+    print(f"\n{name}")
+    src = zarr.open(str(zarr_path), mode="r")
+    image = _Image(src[f"s{scale}/image"])
+    print(f"  image shape (C, H, W): {image.shape}")
+
+    out_path = SEG_OUTPUT_DIR / name
+    dst = zarr.open(str(out_path), mode="a")
 
     for stage, model in models.items():
-        out_key = f"predictions/pathology/{stage}"
-        seg_key = f"predictions/pathology/{stage}_labels"
-        with h5py.File(h5_path, "a") as f:
-            if out_key in f:
-                if not overwrite:
-                    print(f"  [{stage}] skip (already exists)")
-                    continue
-                del f[out_key]
-                if seg_key in f:
-                    del f[seg_key]
+        seg_key = f"{stage}_labels"
+        if seg_key in dst:
+            if not overwrite:
+                print(f"  [{stage}] skip (already exists)")
+                continue
+            del dst[seg_key]
 
-        output = run_stage(image, model, stage, gpu_ids)
-        labels = np.argmax(output, axis=0).astype(np.uint8)
-
-        with h5py.File(h5_path, "a") as f:
-            f.create_dataset(out_key, data=output, compression="gzip")
-            f.create_dataset(seg_key, data=labels, compression="gzip")
-
-        print(f"  [{stage}] saved  probs={output.shape}  labels={labels.shape}")
+        labels = run_stage(image, model, stage, gpu_ids)
+        dst.create_array(seg_key, data=labels, chunks=(512, 512))
+        print(f"  [{stage}] saved  labels={labels.shape}")
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--split", choices=["train", "val", "all"], default="all")
     parser.add_argument("--gpu", type=int, default=0)
+    parser.add_argument("--scale", type=int, default=0)
+    parser.add_argument("--name", default=None, help="process only the zarr whose filename contains this string")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
     device = f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu"
     gpu_ids = [args.gpu] if torch.cuda.is_available() else ["cpu"]
 
-    with open(SPLIT_JSON) as f:
-        split_data = json.load(f)
-    if args.split == "train":
-        paths = split_data["train"]
-    elif args.split == "val":
-        paths = split_data["val"]
-    else:
-        paths = split_data["train"] + split_data["val"]
+    zarr_paths = sorted(HE_ZARR_DIR.glob("*.zarr"))
+    if args.name:
+        zarr_paths = [p for p in zarr_paths if args.name in p.name]
 
     models = load_all_models(device)
 
-    print(f"\nProcessing {len(paths)} file(s) ...")
-    for i, h5_path in enumerate(paths, 1):
-        print(f"[{i}/{len(paths)}]", end=" ")
-        process_file(h5_path, models, gpu_ids, args.overwrite)
+    print(f"\nProcessing {len(zarr_paths)} file(s) ...")
+    for i, zarr_path in enumerate(zarr_paths, 1):
+        print(f"[{i}/{len(zarr_paths)}]", end=" ")
+        process_zarr(zarr_path, models, gpu_ids, args.scale, args.overwrite)
 
 
 if __name__ == "__main__":

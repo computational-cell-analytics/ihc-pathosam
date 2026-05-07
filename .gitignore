@@ -4,3 +4,12 @@ checkpoints/
 logs/
 slurm*.out
 .claude/
+
+# And some other files
+*.h5
+*.png
+*.tif
+*.out
+*.sh
+*.log
+
