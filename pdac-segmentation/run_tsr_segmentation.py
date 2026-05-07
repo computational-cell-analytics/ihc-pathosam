@@ -12,20 +12,22 @@ Usage:
 Connected to https://doi.org/10.1371/journal.pone.0301969.
 """
 
-import argparse
 import os
-import shutil
+import argparse
 from pathlib import Path
 
-import numpy as np
-import torch
-import torch.nn as nn
 import yaml
 import zarr
-import segmentation_models_pytorch as smp
-from huggingface_hub import snapshot_download
+import numpy as np
+
+import torch
+import torch.nn as nn
 
 from torch_em.util.prediction import predict_with_halo
+
+import segmentation_models_pytorch as smp
+
+from huggingface_hub import snapshot_download
 
 
 HF_REPO_ID = "PierpaoloV93/pathology-segmentation-models"
@@ -134,53 +136,64 @@ def load_all_models(device):
     return models
 
 
-def run_stage(image, model, stage, gpu_ids, tmp_dir):
+class _ArgmaxAccumulator:
+    """Receives per-block softmax predictions and writes argmax labels directly.
+
+    predict_with_halo writes non-overlapping blocks, so each pixel is written
+    exactly once - no running-max needed. Only a single (H, W) uint8 array is kept.
+    """
+
+    def __init__(self, n_classes, h, w):
+        self.labels = np.zeros((h, w), dtype=np.uint8)
+        self.shape = (n_classes, h, w)
+        self.ndim = 3
+        self.dtype = np.dtype("float32")
+
+    def __setitem__(self, idx, val):
+        _, h_sl, w_sl = idx
+        self.labels[h_sl, w_sl] = val.argmax(axis=0).astype(np.uint8)
+
+
+def run_stage(image, model, stage, gpu_ids):
     halo = STAGES[stage]["halo"]
     block_shape = (512 - 2 * halo[0], 512 - 2 * halo[1])
     n_classes = model.out_channels
     _, h, w = image.shape
 
-    # Stream block predictions into an on-disk zarr to avoid holding the full
-    # (n_classes, H, W) float32 array in RAM.
-    tmp_path = Path(tmp_dir) / f"_probs_{stage}.zarr"
-    tmp_z = zarr.open(str(tmp_path), mode="w")
-    probs = tmp_z.create_array("data", shape=(n_classes, h, w), chunks=(1, 512, 512), dtype="float32")
-    try:
-        predict_with_halo(
-            image, model, gpu_ids=gpu_ids, block_shape=block_shape, halo=halo,
-            with_channels=True, preprocess=lambda x: x, output=probs,
-        )
-        labels = np.zeros((h, w), dtype=np.uint8)
-        for y in range(0, h, 512):
-            for x in range(0, w, 512):
-                labels[y:y + 512, x:x + 512] = np.argmax(probs[:, y:y + 512, x:x + 512], axis=0)
-    finally:
-        shutil.rmtree(tmp_path)
-
-    return labels
+    acc = _ArgmaxAccumulator(n_classes, h, w)
+    predict_with_halo(
+        image, model, gpu_ids=gpu_ids, block_shape=block_shape, halo=halo,
+        with_channels=True, preprocess=lambda x: x, output=acc,
+    )
+    return acc.labels
 
 
-class _LazyImage:
-    """Wraps a (H, W, C) zarr array as a lazy (C, H, W) float32 view for predict_with_halo."""
+class _Image:
+    """Loads (H, W, C) uint8 zarr into RAM once, serves (C, H, W) float32 blocks on demand.
+
+    Loading as uint8 (~24 GB at s0) avoids the ~96 GB float32 footprint while keeping
+    all block reads in RAM so inference is not bottlenecked by network filesystem I/O.
+    """
 
     def __init__(self, arr):
-        h, w, c = arr.shape
-        self._arr = arr
+        print("  Loading image to RAM (uint8) ...")
+        self._raw = arr[:]
+        h, w, c = self._raw.shape
         self.shape = (c, h, w)
         self.ndim = 3
         self.dtype = np.dtype("float32")
 
     def __getitem__(self, idx):
         c_idx, h_idx, w_idx = idx
-        crop = self._arr[h_idx, w_idx, :]
+        crop = self._raw[h_idx, w_idx, :]
         return crop.transpose(2, 0, 1).astype(np.float32)[c_idx] / 255.0
 
 
-def process_zarr(zarr_path, models, gpu_ids, scale, overwrite, tmp_dir):
+def process_zarr(zarr_path, models, gpu_ids, scale, overwrite):
     name = Path(zarr_path).name
     print(f"\n{name}")
     src = zarr.open(str(zarr_path), mode="r")
-    image = _LazyImage(src[f"s{scale}/image"])
+    image = _Image(src[f"s{scale}/image"])
     print(f"  image shape (C, H, W): {image.shape}")
 
     out_path = SEG_OUTPUT_DIR / name
@@ -194,7 +207,7 @@ def process_zarr(zarr_path, models, gpu_ids, scale, overwrite, tmp_dir):
                 continue
             del dst[seg_key]
 
-        labels = run_stage(image, model, stage, gpu_ids, tmp_dir)
+        labels = run_stage(image, model, stage, gpu_ids)
         dst.create_array(seg_key, data=labels, chunks=(512, 512))
         print(f"  [{stage}] saved  labels={labels.shape}")
 
@@ -204,7 +217,6 @@ def main():
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--scale", type=int, default=0)
     parser.add_argument("--name", default=None, help="process only the zarr whose filename contains this string")
-    parser.add_argument("--tmp-dir", default=None, help="directory for temporary prob zarrs (defaults to zarr parent)")
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -220,8 +232,7 @@ def main():
     print(f"\nProcessing {len(zarr_paths)} file(s) ...")
     for i, zarr_path in enumerate(zarr_paths, 1):
         print(f"[{i}/{len(zarr_paths)}]", end=" ")
-        tmp_dir = args.tmp_dir if args.tmp_dir else SEG_OUTPUT_DIR
-        process_zarr(zarr_path, models, gpu_ids, args.scale, args.overwrite, tmp_dir)
+        process_zarr(zarr_path, models, gpu_ids, args.scale, args.overwrite)
 
 
 if __name__ == "__main__":
