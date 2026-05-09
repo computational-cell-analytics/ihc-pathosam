@@ -7,7 +7,7 @@ from micro_sam.instance_segmentation import get_unetr
 
 from patho_sam.training import SemanticInstanceTrainer
 
-from _util import get_class_weights, get_loaders
+from _util import get_loaders
 
 
 def run_training():

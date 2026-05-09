@@ -136,7 +136,6 @@ def run_eval(input_path, pred, check, cache_path):
     else:
         instance_seg, semantic_seg = None, None
 
-
     msa, sas = mean_segmentation_accuracy(pred, labels, return_accuracies=True)
     print("mSA :", msa)
     print("SA50:", sas[0])

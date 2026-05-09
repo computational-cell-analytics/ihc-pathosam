@@ -1,6 +1,5 @@
 # Note: bfconvert creates broken tifs (great ...)
 # so we have to convert to zarr to process some of the files correctly.
-import multiprocessing as mp
 import os
 import tempfile
 from concurrent import futures

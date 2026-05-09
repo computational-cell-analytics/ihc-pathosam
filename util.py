@@ -42,7 +42,7 @@ def extract_region_instance_id_arrays(json_path, pad=0):
     regions = data.get("annotated_regions", [])
     cells = data.get("cells", [])
 
-    # --- region bboxes from region point lists ---
+    # Region bboxes from region point lists.
     region_bboxes = []
     for pts in regions:
         if not (isinstance(pts, list) and len(pts) >= 2 and isinstance(pts[0], list) and len(pts[0]) == 2):
@@ -65,7 +65,7 @@ def extract_region_instance_id_arrays(json_path, pad=0):
         seg = np.zeros((y1 - y0, x1 - x0), dtype=np.uint32)
         out[r_i] = (bbox_slice, seg)
 
-    # --- assign each cell to first region whose bbox contains its centroid ---
+    # Assign each cell to first region whose bbox contains its centroid.
     for cell_idx, cell in enumerate(cells):
         # polygon nodes are assumed to be the last element; also allow polygon-only cells
         poly = cell
