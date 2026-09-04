@@ -67,6 +67,15 @@ def parse_args() -> argparse.Namespace:
         help="Output directory (default: hdf5)",
     )
     parser.add_argument(
+        "--zarr-dir",
+        type=Path,
+        help=(
+            "Directory containing matching SAMPLE.zarr WSIs. When supplied, "
+            "validate the native WSI dimensions and use the exact s*/image "
+            "pyramid shapes for the label datasets."
+        ),
+    )
+    parser.add_argument(
         "--qupath",
         default="qupath",
         help="QuPath executable used to read .qpdata files (default: qupath)",
@@ -203,6 +212,78 @@ def read_pyramid_levels(metadata: dict[str, Any]) -> list[PyramidLevel]:
     return levels
 
 
+def read_zarr_pyramid_levels(
+    zarr_path: Path,
+    metadata: dict[str, Any],
+) -> list[PyramidLevel]:
+    if not zarr_path.is_dir():
+        raise FileNotFoundError(f"Matching Zarr WSI was not found: {zarr_path}")
+
+    indexed_level_dirs = []
+    for path in zarr_path.iterdir():
+        if path.is_dir() and path.name.startswith("s") and path.name[1:].isdigit():
+            indexed_level_dirs.append((int(path.name[1:]), path))
+    indexed_level_dirs.sort()
+    if not indexed_level_dirs:
+        raise RuntimeError(f"No s*/image pyramid arrays were found in {zarr_path}")
+
+    indices = [index for index, _ in indexed_level_dirs]
+    if indices != list(range(len(indices))):
+        raise RuntimeError(
+            f"Zarr pyramid levels must be contiguous from s0 in {zarr_path}; "
+            f"found {indices}"
+        )
+
+    levels = []
+    for index, level_dir in indexed_level_dirs:
+        array_metadata_path = level_dir / "image" / "zarr.json"
+        if not array_metadata_path.is_file():
+            raise RuntimeError(f"Missing Zarr array metadata: {array_metadata_path}")
+        try:
+            array_metadata = json.loads(
+                array_metadata_path.read_text(encoding="utf-8")
+            )
+            shape = array_metadata["shape"]
+            height, width, channels = (int(value) for value in shape)
+        except (KeyError, TypeError, ValueError) as error:
+            raise RuntimeError(
+                f"Invalid YXC Zarr array metadata in {array_metadata_path}"
+            ) from error
+        if len(shape) != 3 or channels != 3:
+            raise RuntimeError(
+                f"Expected a three-channel YXC array in {array_metadata_path}; "
+                f"found shape {shape}"
+            )
+        levels.append(
+            PyramidLevel(
+                index=index,
+                downsample=float(2**index),
+                width=width,
+                height=height,
+            )
+        )
+
+    level_zero = levels[0]
+    expected_level_zero = (int(metadata["width"]), int(metadata["height"]))
+    if (level_zero.width, level_zero.height) != expected_level_zero:
+        raise RuntimeError(
+            f"Zarr level s0 dimensions {level_zero.width}x{level_zero.height} "
+            f"do not match the annotation WSI metadata "
+            f"{expected_level_zero[0]}x{expected_level_zero[1]} for {zarr_path.name}"
+        )
+
+    for previous, current in zip(levels, levels[1:], strict=False):
+        valid_widths = {previous.width // 2, (previous.width + 1) // 2}
+        valid_heights = {previous.height // 2, (previous.height + 1) // 2}
+        if current.width not in valid_widths or current.height not in valid_heights:
+            raise RuntimeError(
+                f"Zarr level s{current.index} has unexpected dimensions "
+                f"{current.width}x{current.height} after "
+                f"{previous.width}x{previous.height}"
+            )
+    return levels
+
+
 def export_geojson(
     pairs: Sequence[tuple[Path, Path]],
     destinations: Sequence[Path],
@@ -311,6 +392,31 @@ def prepare_features(
     return prepared, counts
 
 
+def validate_feature_bounds(
+    features: Sequence[PreparedFeature],
+    level_zero: PyramidLevel,
+) -> None:
+    invalid = []
+    for index, feature in enumerate(features):
+        min_x, min_y, max_x, max_y = feature.bounds
+        if (
+            min_x < 0
+            or min_y < 0
+            or max_x > level_zero.width
+            or max_y > level_zero.height
+        ):
+            invalid.append((index, feature.class_name, feature.bounds))
+    if invalid:
+        details = "; ".join(
+            f"feature {index} ({class_name}): {bounds}"
+            for index, class_name, bounds in invalid
+        )
+        raise ValueError(
+            f"Annotation geometry exceeds the level-0 WSI bounds "
+            f"{level_zero.width}x{level_zero.height}: {details}"
+        )
+
+
 def dataset_chunks(shape: tuple[int, int], chunk_size: int) -> tuple[int, int]:
     return min(chunk_size, shape[0]), min(chunk_size, shape[1])
 
@@ -415,28 +521,39 @@ def rasterize_level_zero_blockwise(
     )
 
 
-def downsample_with_bioimage_py(
+def downsample_nearest_blockwise(
     source: h5py.Dataset,
     target: h5py.Dataset,
     features: Sequence[PreparedFeature],
     downsample: float,
     num_workers: int,
 ) -> None:
+    def sample_source(block, inputs, outputs, mask) -> None:
+        y0, x0 = (int(value) for value in block.begin)
+        y1, x1 = (int(value) for value in block.end)
+        source_roi = (
+            slice(2 * y0, 2 * y1, 2),
+            slice(2 * x0, 2 * x1, 2),
+        )
+        outputs[0][bioimage_py.to_roi(block)] = source[source_roi]
+
     block_ids = blocks_overlapping_features(
         features,
         target.shape,
         target.chunks,
         coordinate_scale=downsample,
     )
-    bioimage_py.downsample(
-        source,
-        2,
-        output=target,
-        order=0,
-        anti_aliasing=False,
+    if not block_ids:
+        return
+    runner = bioimage_py.get_runner("local")
+    runner.run(
+        sample_source,
+        [],
+        outputs=[target],
         block_shape=target.chunks,
         block_ids=block_ids,
         num_workers=num_workers,
+        name="downsample",
     )
 
 
@@ -463,6 +580,7 @@ def write_pyramid(
     annotation_counts: dict[str, int],
     chunk_size: int,
     num_workers: int,
+    zarr_path: Path | None = None,
 ) -> None:
     base_pixel_size_x = calibration_value(metadata, "pixelWidth")
     base_pixel_size_y = calibration_value(metadata, "pixelHeight")
@@ -480,10 +598,19 @@ def write_pyramid(
             output.attrs["sample_id"] = vsi_path.stem
             output.attrs["source_vsi"] = vsi_path.name
             output.attrs["source_qpdata"] = qpdata_path.name
-            output.attrs["pyramid_metadata_source"] = (
-                "QuPath serialized VSI image-server metadata"
+            if zarr_path is None:
+                output.attrs["pyramid_metadata_source"] = (
+                    "QuPath serialized VSI image-server metadata"
+                )
+            else:
+                output.attrs["source_zarr"] = zarr_path.name
+                output.attrs["source_zarr_array_pattern"] = "s{level}/image"
+                output.attrs["pyramid_metadata_source"] = (
+                    "Converted Zarr WSI s*/image array metadata"
+                )
+            output.attrs["pyramid_downsampler"] = (
+                "blockwise nearest-neighbor 2x stride"
             )
-            output.attrs["pyramid_downsampler"] = "bioimage_py.downsample"
             output.attrs["pyramid_sampling"] = (
                 "nearest-neighbor from the immediately preceding level"
             )
@@ -533,7 +660,7 @@ def write_pyramid(
                 current.attrs["pixel_size_y_um"] = (
                     base_pixel_size_y * level.downsample
                 )
-                downsample_with_bioimage_py(
+                downsample_nearest_blockwise(
                     previous,
                     current,
                     features,
@@ -598,6 +725,14 @@ def main() -> int:
                 features, counts = prepare_features(
                     raw_features, class_map, args.unclassified_label
                 )
+                zarr_path = (
+                    args.zarr_dir / f"{vsi_path.stem}.zarr"
+                    if args.zarr_dir is not None
+                    else None
+                )
+                if zarr_path is not None:
+                    levels = read_zarr_pyramid_levels(zarr_path, metadata)
+                validate_feature_bounds(features, levels[0])
                 print(
                     f"{vsi_path.stem}: {len(features)} annotations, "
                     f"{len(levels)} pyramid levels",
@@ -616,6 +751,7 @@ def main() -> int:
                     counts,
                     args.chunk_size,
                     args.workers,
+                    zarr_path,
                 )
                 print(f"  wrote {output_path}", flush=True)
     except (FileNotFoundError, RuntimeError, ValueError, IndexError) as error:

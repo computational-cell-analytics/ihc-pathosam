@@ -30,6 +30,22 @@ python export_hdf5.py data --output-dir hdf5 --overwrite
 Use `--qupath /path/to/QuPath` if QuPath is not on `PATH`. Run
 `python export_hdf5.py --help` for class mapping, worker, and chunk-size options.
 
+To validate against converted Zarr WSIs and make the label levels match the
+exact `s*/image` array shapes, pass the directory containing the matching
+`SAMPLE.zarr` stores:
+
+```bash
+python export_hdf5.py data \
+    --zarr-dir /path/to/converted_zarr_he \
+    --output-dir hdf5 \
+    --overwrite
+```
+
+The exporter checks that each Zarr `s0/image` shape matches the dimensions
+serialized with the QuPath annotations and that every annotation is within the
+native image bounds. It then writes one HDF5 label level for every Zarr image
+level using the same height and width.
+
 Each HDF5 file contains a `labels` group. Its datasets are named by pyramid
 level:
 
@@ -43,9 +59,10 @@ labels/2   4× downsampled labels
 The level dimensions and downsamples match the WSI pyramid metadata. The exporter
 uses `bioimage_py` to process the labels block-wise and out of core. Level 0 is
 rasterized in blocks, so the full gigapixel mask is never held in memory. Each
-subsequent level uses nearest-neighbor label sampling from the immediately
-preceding level. It never resamples directly from level 0. The default is one
-worker with 512 × 512-pixel blocks to keep peak memory low.
+subsequent level uses a nearest-neighbor 2× stride from the immediately preceding
+level, cropped to its exact target dimensions. It never resamples directly from
+level 0. The default is one worker with 512 × 512-pixel blocks to keep peak
+memory low.
 
 The datasets use chunked LZF compression and an implicit background fill value.
 Root and dataset attributes contain the class mapping, pixel sizes, objective
@@ -65,6 +82,21 @@ level into memory.
 
 The default `--level -1` selects the coarsest level in each file. TM105 has
 levels 0 through 7. The other samples have levels 0 through 8.
+
+## Portable image and label files
+
+`export_combined_hdf5.py` combines one Zarr image level with the corresponding
+annotation level. By default it exports level 4 and writes one file per matched
+sample to `combined_hdf5_level4`. Each output contains `raw` (YXC RGB image) and
+`labels` (YX annotation mask) datasets:
+
+```bash
+python export_combined_hdf5.py
+```
+
+The input directories, output directory, level, dataset keys, compression, and
+sample selection can all be overridden; run
+`python export_combined_hdf5.py --help` for details.
 
 ## Resolution and magnification
 
