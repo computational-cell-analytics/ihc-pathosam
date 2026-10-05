@@ -16,6 +16,52 @@ from scipy.ndimage import uniform_filter
 from elf.wrapper.resized_volume import ResizedVolume
 
 
+SAM_MEAN = np.array([123.675, 116.28, 103.53], dtype=np.float32)
+SAM_STD = np.array([58.395, 57.12, 57.375], dtype=np.float32)
+
+
+def wsi_normalize(image):
+    """Normalize a WSI image to SAM's expected distribution using per-image statistics.
+
+    Maps each image's per-channel mean/std to SAM's pixel_mean/pixel_std so that
+    SAM's internal (x - SAM_MEAN) / SAM_STD step effectively applies a per-image
+    z-score: (x - image_mean) / image_std.
+
+    Args:
+        image: (H, W, C) array, uint8 or float32.
+
+    Returns:
+        Normalized float32 array of shape (H, W, C) in [0, 255].
+    """
+    raw = image.astype(np.float32).transpose(2, 0, 1)  # (C, H, W)
+    mean = raw.mean(axis=(1, 2), keepdims=True)
+    std = raw.std(axis=(1, 2), keepdims=True) + 1e-6
+    normalized = np.clip(
+        (raw - mean) / std * SAM_STD[:, None, None] + SAM_MEAN[:, None, None],
+        0.0, 255.0,
+    ).astype(np.float32)
+    return normalized.transpose(1, 2, 0)  # (H, W, C)
+
+
+class NormalizedImage:
+    """Lazy wrapper that applies wsi_normalize per tile as the image is accessed.
+
+    Compatible with any array-like (zarr, numpy, RoiWrapper). Normalization
+    is applied per accessed tile, so no full-image load is required.
+    """
+
+    def __init__(self, image):
+        self._image = image
+        self.shape = image.shape
+        self.ndim = len(image.shape)
+
+    def __getitem__(self, index):
+        tile = np.asarray(self._image[index])
+        if tile.ndim == 3:
+            return wsi_normalize(tile)
+        return tile.astype(np.float32)
+
+
 def load_tif_as_zarr(path, scale_level=0):
     tif = tifffile.TiffFile(path)
     store = tif.aszarr()

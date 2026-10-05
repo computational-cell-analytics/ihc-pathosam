@@ -9,7 +9,7 @@ import numpy as np
 from elf.evaluation.matching import mean_segmentation_accuracy
 from micro_sam.automatic_segmentation import automatic_instance_segmentation, get_predictor_and_segmenter
 
-from _util import get_split
+from _util import get_split, _wsi_normalize
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from util import get_instance_segmentation_model  # noqa (ihc-pathosam/util.py)
@@ -28,6 +28,7 @@ def run_prediction(input_path, model_path, cache_folder, cache):
 
     with h5py.File(input_path, "r") as f:
         image = f["raw"][:]  # (H, W, C)
+    image = _wsi_normalize(image.transpose(2, 0, 1).astype(np.float32)).transpose(1, 2, 0)
 
     tile_shape, halo = (384, 384), (64, 64)
     if model_path is None:

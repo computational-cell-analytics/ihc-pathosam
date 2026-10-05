@@ -14,6 +14,9 @@ from patho_sam.training.util import histopathology_identity
 ROOT = "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/extracted_data"
 SPLIT_JSON = Path(__file__).parent / "splits" / "split.json"
 
+SAM_MEAN = np.array([123.675, 116.28, 103.53], dtype=np.float32)
+SAM_STD = np.array([58.395, 57.12, 57.375], dtype=np.float32)
+
 
 def get_split(root=ROOT, split_json=None, val_fraction=0.4, seed=42):
     """Load train/val split from JSON if available, otherwise create and save it.
@@ -58,6 +61,21 @@ def get_split(root=ROOT, split_json=None, val_fraction=0.4, seed=42):
     return train_paths, val_paths
 
 
+def _wsi_normalize(raw):
+    """Normalize a WSI tile to SAM's expected distribution using per-tile statistics.
+
+    Maps each tile's per-channel mean/std to SAM's pixel_mean/pixel_std so that
+    UNETR's internal (x - SAM_MEAN) / SAM_STD step effectively applies a per-tile
+    z-score: (x - tile_mean) / tile_std.
+    """
+    mean = raw.mean(axis=(1, 2), keepdims=True)
+    std = raw.std(axis=(1, 2), keepdims=True) + 1e-6
+    return np.clip(
+        (raw - mean) / std * SAM_STD[:, None, None] + SAM_MEAN[:, None, None],
+        0.0, 255.0,
+    ).astype(np.float32)
+
+
 def _load_data(paths, label_key):
     """Load raw images and labels from h5 files into memory.
 
@@ -71,7 +89,8 @@ def _load_data(paths, label_key):
     raw_arrays, label_arrays = [], []
     for path in paths:
         with h5py.File(path, "r") as f:
-            raw_arrays.append(f["raw"][:].transpose(2, 0, 1))  # (H, W, C) -> (C, H, W)
+            raw = f["raw"][:].transpose(2, 0, 1).astype(np.float32)  # (H, W, C) -> (C, H, W)
+            raw_arrays.append(_wsi_normalize(raw))
             label_arrays.append(f[label_key][:])
     return raw_arrays, label_arrays
 
