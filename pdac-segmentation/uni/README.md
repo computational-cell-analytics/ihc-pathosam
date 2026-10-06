@@ -2,7 +2,8 @@ This creates initial code for embedding computation with UNI.
 
 ## Tissue classification with UNI2-h
 
-Classifies H&E WSIs into background (glass), normal pancreas and tumor with a linear probe on UNI2-h features.
+Classifies H&E WSIs into background (glass), normal pancreas, tumor and other tissue with a linear probe on UNI2-h
+features. Other tissue is not annotated; the training learns it from clusters of unannotated tissue.
 See `BENCHMARK_RESULTS.md` for how the method was chosen and how well it works.
 
 Training on annotated slides (zarr pyramids with `s{level}/image`, or TIFF pyramids such as SVS / OME-TIFF, and HDF5
@@ -22,11 +23,12 @@ python predict_tissue_classifier.py -i slide.zarr -m uni_tissue_classifier.pt -o
 
 - `--pixel_size` is the size of a pixel at full resolution in microns. The slide is read from the closest finer
   pyramid level and resampled to 2.19 microns per pixel.
-- The output contains `prediction` (0 background, 1 normal pancreas, 2 tumor at 2.19 microns per pixel) and
-  `probabilities` (per 31 micron token).
-- Pass `--labels` to also print the Dice per class against an annotation.
-- The model has no class for other tissue (stroma, fat, muscle, ...), which is predicted as tumor or normal pancreas.
+- The output contains `prediction` (0 background, 1 normal pancreas, 2 tumor, 3 other tissue at 2.19 microns per
+  pixel) and `probabilities` (per 31 micron token).
+- Pass `--labels` to also print the Dice, precision, recall and F1 per class against an annotation.
+- Other tissue is learned without annotations and only covers part of it; some stroma, muscle or mucosa is still
+  predicted as tumor or normal pancreas.
 - It is trained on H&E only and is not meant for IHC slides.
 
 The classifier trained on the five PDAC slides:
-`/mnt/vast-nhr/projects/cidas/cca/experiments/pdac_uni_semantic/models/uni_tissue_classifier_v1.pt`.
+`/mnt/vast-nhr/projects/cidas/cca/experiments/pdac_uni_semantic/models/uni_tissue_classifier_v2.pt`.

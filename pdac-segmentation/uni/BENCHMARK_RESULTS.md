@@ -6,9 +6,10 @@ described here, and the training / prediction scripts implement the selected con
 
 ## Key takeaways
 
-- Selected configuration: linear probe on UNI2-h tokens at 2.19 um/px (level 3 of the 20x scans), with the
-  9 x 9 token context mean appended, 3 x 3 probability smoothing and 10k class-balanced training tokens.
-  Held-out mean Dice 0.980 with the final scripts; nested estimate of the whole selection procedure 0.977.
+- Final pipeline: linear probe on UNI2-h tokens at 2.19 um/px (level 3 of the 20x scans), with the 9 x 9 token
+  context mean appended, 3 x 3 probability smoothing, 10k class-balanced training tokens, and an other tissue class
+  learned from clusters of unannotated tissue (predicted only at probability >= 0.9). Held-out mean Dice 0.973
+  (background 0.985, normal pancreas 0.971, tumor 0.957); the 3-class version without other tissue reaches 0.980.
 - Only score glass and annotated regions: the annotations are not exhaustive, and counting unannotated tissue as
   background penalizes correct predictions (normal pancreas Dice 0.37 -> 0.97 once this is fixed).
 - Context (the mean of the surrounding tokens) is the one big gain; everything else is within noise.
@@ -16,8 +17,10 @@ described here, and the training / prediction scripts implement the selected con
 - UNI2-h is robust to simulated stain and blur shifts (at most about -0.003); stain augmentation is not needed and
   per-slide feature standardization hurts.
 - 1k training tokens are about as good as 10k; with about 100 tokens, a Random Forest with context 5 is better.
-- The model has no class for other tissue (stroma, fat, muscle, ...); it predicts such tissue as tumor or normal
-  pancreas. This needs annotations of other tissue before whole-slide maps can be trusted.
+- Normal pancreas is almost never missed (recall 0.99-1.00) but slightly over-predicted at its borders.
+- Without an other tissue class, all stroma, fat, muscle, ... is predicted as tumor or normal pancreas. Learning other
+  tissue from clusters of unannotated tissue fixes this partly (about a third of it) at a small cost in tumor Dice;
+  annotated examples of other tissue remain the reliable fix.
 
 ## Task and data
 
@@ -194,41 +197,108 @@ Only two pyramid levels were compared (100k tokens, mean over the 4 test folds):
 - The pipeline is defined in microns per pixel, not by level: every slide is resampled to 2.19 um/px, so slides
   from other scanners or magnifications end up at the same scale.
 
-## Selected configuration
+### 5. Learning other tissue without annotations
+
+The whole-slide maps predict all tissue as tumor or normal pancreas, which is confusing. Three ways to get an
+"other tissue" class without new annotations were tested with the selected configuration (2026-10-06):
+
+- Unannotated tissue as a fourth class: leave-one-slide-out Dice for normal pancreas dropped from 0.96-0.99 to
+  0.06-0.20 and for tumor from 0.95-0.98 to 0.51-0.89. Unannotated tissue contains a lot of real normal pancreas
+  (and some tumor), and there are far more unannotated tokens than annotated normal pancreas tokens (about 13k),
+  so the model learns annotated normal pancreas as other tissue (recall 0.04 on TM105).
+- The confidence of the 3-class model: the maximum probability separates annotated from unannotated tissue only
+  partially (AUC 0.71-0.89, median confidence on unannotated tissue 0.97-1.0), so a threshold would only catch a
+  small part of the other tissue.
+- The multi-tissue model of `../tissue_segmentation` (`multi-tissue_labels`): its classes do not line up with the
+  annotations. The class covering 39% of the unannotated tissue also covers 32% of the annotated tumor regions,
+  because the tumor outlines include the tumor stroma.
+
+Three further ideas were then compared leave-one-slide-out at the token level (mean over the 4 test slides; coverage =
+share of unannotated tissue predicted as other tissue, leak = share of annotated tissue predicted as other tissue):
+
+| Method | Normal | Tumor | Coverage | Tumor leak |
+| --- | --- | --- | --- | --- |
+| 3-class (current model) | 0.977 | 0.972 | 0% | 0% |
+| clustering (k-means, 40 clusters, strict), other only if P(other) >= 0.9 | 0.977 | 0.949 | 33% | 4.5% |
+| clustering, other by argmax | 0.977 | 0.937 | 40% | 6.8% |
+| clustering, looser cluster selection | 0.974 | 0.900 | 63% | 13.6% |
+| tumor vs other tissue (incl. normal pancreas) vs background | - | 0.831 | 88% | 24% |
+| positive-unlabeled learning (Elkan-Noto) | 0.07 | 0.83 | 71% | 24% (96% of normal) |
+
+- Clustering: k-means on the context features (PCA to 64 dims) of the training tissue; clusters whose share of the
+  annotated normal / tumor tokens is below 5% of their share of the unannotated tokens are taken as other tissue.
+  Normal pancreas is unaffected; tumor loses about 0.02 Dice, mostly on TM120 (0.87). Visually it removes most of the
+  fat and loose stroma, but duodenal mucosa and muscle (TM50) are still predicted as tumor. The settings were picked
+  among 19 variants on the test slides, so the numbers are slightly optimistic.
+- Tumor vs other tissue fails because the unannotated stroma looks like the stroma inside the tumor outlines.
+- Positive-unlabeled learning fails because annotated normal pancreas looks like the unannotated normal pancreas.
+- A public tissue-type dataset (e.g. NCT-CRC-HE-100K) was not tried: it is colorectal and at 0.5 um/px, where a
+  patch is too small for the context features.
+
+Annotated examples of other tissue (stroma outside the tumor, fat, muscle, duodenal mucosa, lymph nodes, ...) remain
+the reliable fix; they can be trained as a fourth class with the same pipeline.
+
+
+### 6. Class balance
+
+The training sample is class balanced (`sample_balanced`: equal share per class, 2,500 tokens each for 10k tokens).
+Leave-one-slide-out comparison with the final pipeline (mean over the 4 test slides):
+
+| Training sample (10k tokens) | Background | Normal | Tumor | Other coverage |
+| --- | --- | --- | --- | --- |
+| class balanced (selected) | 0.985 | 0.977 | 0.949 | 33% |
+| natural proportions (76% glass, 0.4% normal pancreas) | 0.987 | 0.972 | 0.957 | 29% |
+| natural proportions + class-weighted loss | 0.987 | 0.968 | 0.958 | 30% |
+
+The differences are within noise. Balanced sampling is kept because it guarantees enough tokens of the rare normal
+pancreas class (only about 40 tokens in a natural sample).
+
+## Final pipeline
 
 Linear probe on UNI2-h tokens at 2.19 um/px, with the 9 x 9 token context mean appended (3072 features per token),
-3 x 3 probability smoothing, trained on 10k class-balanced tokens, no per-slide standardization, no stain
-augmentation. It is the simplest configuration within noise of the best and the most robust linear variant.
+trained on 10k class-balanced tokens of four classes: background (glass), normal pancreas, tumor and other tissue.
+Other tissue is learned from the unannotated tissue in the clusters (k-means, 40 clusters) that hold almost no
+annotated normal pancreas or tumor. At prediction, the class probabilities are averaged over 3 x 3 tokens and other
+tissue is only predicted where its probability is at least 0.9.
 
-Leave-one-slide-out check of the final scripts (scored at 2.19 um/px, which makes background slightly lower than
-in the benchmark that scored at level 4):
+Leave-one-slide-out results of the final scripts (`train_tissue_classifier.py` / `predict_tissue_classifier.py`,
+metrics from `elf.evaluation`, scored at 2.19 um/px on glass and annotated tissue). Dice / precision / recall;
+pixel-wise F1 is identical to Dice:
 
-| Test slide | Background | Normal | Tumor | Mean |
-| --- | --- | --- | --- | --- |
-| TM105 | 0.971 | 0.986 | 0.984 | 0.980 |
-| TM120 | 0.990 | 0.962 | 0.951 | 0.968 |
-| TM50 | 0.995 | - | 0.991 | 0.993 |
-| TM90 | 0.988 | 0.975 | 0.973 | 0.978 |
+| Test slide | Background | Normal pancreas | Tumor | Mean Dice | Other tissue (of predicted tissue) |
+| --- | --- | --- | --- | --- | --- |
+| TM105 | 0.971 / 0.976 / 0.966 | 0.982 / 0.965 / 0.999 | 0.984 / 0.982 / 0.986 | 0.979 | 2.5% |
+| TM120 | 0.987 / 0.985 / 0.989 | 0.953 / 0.911 / 0.999 | 0.894 / 0.965 / 0.833 | 0.945 | 36.6% |
+| TM50 | 0.997 / 0.998 / 0.995 | - | 0.993 / 0.991 / 0.996 | 0.995 | 23.4% |
+| TM90 | 0.987 / 0.986 / 0.988 | 0.978 / 0.969 / 0.987 | 0.958 / 0.976 / 0.942 | 0.975 | 26.6% |
+| Mean | 0.985 / 0.986 / 0.984 | 0.971 / 0.948 / 0.995 | 0.957 / 0.978 / 0.939 | 0.973 | |
+
+Compared with the 3-class model (mean Dice 0.980: background 0.986, normal pancreas 0.974, tumor 0.975), tumor
+recall drops mostly on TM120, where part of the tumor stroma is predicted as other tissue. Normal pancreas is
+almost never missed (recall 0.99-1.00) but slightly over-predicted at its borders.
 
 The classifier trained on all five slides is
-`/mnt/vast-nhr/projects/cidas/cca/experiments/pdac_uni_semantic/models/uni_tissue_classifier_v1.pt`.
+`/mnt/vast-nhr/projects/cidas/cca/experiments/pdac_uni_semantic/models/uni_tissue_classifier_v2.pt` (6 of 40
+clusters used as other tissue). The leave-one-slide-out classifiers and predictions are in
+`/mnt/vast-nhr/projects/cidas/cca/experiments/pdac_uni_semantic/pipeline_final_loso/`.
 
-The held-out predictions were rendered as PNGs (`<slide>_heldout_prediction.png`): raw slide, ground truth, whole
-slide prediction, and per class the true positives (green), false positives (red) and false negatives (orange),
-following the colors of `elf.visualisation.metric_visualization`; unannotated tissue is grey (not scored). The
-leave-one-slide-out classifiers and predictions are in
-`/mnt/vast-nhr/projects/cidas/cca/experiments/pdac_uni_semantic/pipeline_test/`.
+Held-out prediction figures of the final pipeline (`other_tissue_figures/<slide>_heldout_prediction.png` in the
+repository root): raw slide, ground truth and whole slide prediction as flat maps (normal pancreas blue, tumor
+violet, other tissue brown, glass white, unannotated tissue grey), and per class the true positives (aqua), false
+positives (red) and false negatives (yellow), following the TP / FP / FN idea of
+`elf.visualisation.metric_visualization` with colors that stay distinct for color-blind readers.
 
 ## Inference for users
 
 ```bash
-python predict_tissue_classifier.py -i slide.zarr -m uni_tissue_classifier_v1.pt -o slide_prediction.h5 --pixel_size 0.2738
+python predict_tissue_classifier.py -i slide.zarr -m uni_tissue_classifier_v2.pt -o slide_prediction.h5 --pixel_size 0.2738
 ```
 
 - Input: a WSI pyramid (zarr with `s{level}/image`, or a TIFF pyramid such as SVS / OME-TIFF) and its pixel size
   at full resolution. The closest finer level is read and resampled to 2.19 um/px.
-- Output: HDF5 with `prediction` (0 background, 1 normal pancreas, 2 tumor at 2.19 um/px), `probabilities` (per
-  token) and the source and pixel size as attributes. `--labels` also prints the Dice against an annotation.
+- Output: HDF5 with `prediction` (0 background, 1 normal pancreas, 2 tumor, 3 other tissue at 2.19 um/px),
+  `probabilities` (per token) and the source and pixel size as attributes. `--labels` also prints the Dice,
+  precision, recall and F1 against an annotation.
 - Needs a GPU and access to the UNI2-h weights (gated on Hugging Face; local copy in
   `/mnt/vast-nhr/projects/cidas/cca/models/univ2`). About 25 s per slide on an A100.
 - Open points: reading the pixel size from the slide metadata, a batch mode for folders, export to QuPath (GeoJSON)
@@ -236,9 +306,9 @@ python predict_tissue_classifier.py -i slide.zarr -m uni_tissue_classifier_v1.pt
 
 ## Limitations
 
-- The scores only cover glass and annotated regions. The model has no class for other tissue (stroma, fat, muscle,
-  duodenal mucosa, lymph nodes): it predicts such tissue as tumor or normal pancreas. Annotating a few regions of
-  other tissue per slide and adding a class for it is the next step before others rely on whole-slide maps.
+- The scores only cover glass and annotated regions. Other tissue is learned without annotations and cannot be
+  scored; it covers about a third of the unannotated tissue, and some tissue (e.g. duodenal mucosa and muscle on
+  TM50) is still predicted as tumor. Annotated regions of other tissue would allow training and scoring it properly.
 - Five slides from one center and one scanner. The stain and blur shifts are simulations, not real other-site data.
 - H&E only. IHC (hematoxylin + DAB, no eosin) looks very different to UNI2-h and to the saturation-based glass
   mask; it would need annotated IHC slides and a retrained classifier.
