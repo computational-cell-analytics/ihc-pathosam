@@ -14,7 +14,7 @@ from micro_sam.instance_segmentation import get_unetr
 
 from torch_em.util.prediction import predict_with_halo
 
-from _util import get_split
+from _util import get_split, _wsi_normalize
 
 SPLIT_JSON = Path(__file__).parent / "splits" / "split.json"
 DEFAULT_MODEL = "/mnt/vast-nhr/projects/cidas/cca/data/pdac_umg_histopatho/models/v1/checkpoints/pathosam-nuclei-semantic/best.pt"  # noqa
@@ -51,10 +51,10 @@ def run_prediction(input_path, unetr, cache_folder, cache):
         image = f["raw"][:]  # (H, W, C)
 
     tile_shape, halo = (384, 384), (64, 64)
-    input_ = image.transpose((2, 0, 1))  # (H, W, C) -> (C, H, W)
+    input_ = _wsi_normalize(image.transpose((2, 0, 1)).astype(np.float32))
     semantic = predict_with_halo(
         input_, unetr, gpu_ids=[0], block_shape=tile_shape, halo=halo,
-        preprocess=lambda x: x.astype("float32"), with_channels=True,
+        preprocess=lambda x: x, with_channels=True,
     )
     pred = semantic.argmax(axis=0)
 

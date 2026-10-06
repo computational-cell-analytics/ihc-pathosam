@@ -9,7 +9,7 @@ from elf.wrapper import RoiWrapper
 from micro_sam.automatic_segmentation import automatic_instance_segmentation
 from micro_sam.util import precompute_image_embeddings
 from patho_sam.semantic_segmentation import get_semantic_predictor_and_segmenter
-from util import load_image, get_mask, get_instance_segmentation_model, get_obap_model
+from util import load_image, get_mask, get_instance_segmentation_model, get_obap_model, NormalizedImage
 
 
 def _get_predictor_and_segmenter(model_type, model_path, semantic):
@@ -80,7 +80,7 @@ def check_pred(image, segmentation, semantic_segmentation):
 def apply_pathosam_wsi(
     image_path, output_path, model_path,
     batch_size, output_key, semantic, mask, roi,
-    classification_model, check=False,
+    classification_model, normalize=False, check=False, overwrite=False,
 ):
     output_folder = os.path.split(output_path)[0]
     os.makedirs(output_folder, exist_ok=True)
@@ -90,6 +90,9 @@ def apply_pathosam_wsi(
         roi = (slice(roi[0], roi[1]), slice(roi[2], roi[3]), slice(0, 3))
         image = RoiWrapper(image, roi)
 
+    if normalize:
+        image = NormalizedImage(image)
+
     have_pred = os.path.exists(output_path) and output_key in zarr.open(output_path, mode="r")
     sem_seg_key = "semantic_from_class"
     if check and have_pred:
@@ -97,7 +100,7 @@ def apply_pathosam_wsi(
         segmentation = f[output_key]
         semantic_segmentation = f[sem_seg_key] if sem_seg_key in f else None
         check_pred(image, segmentation, semantic_segmentation)
-    elif have_pred:
+    elif have_pred and not overwrite:
         return
 
     predictor, segmenter = _get_predictor_and_segmenter(
@@ -109,7 +112,10 @@ def apply_pathosam_wsi(
 
     dtype = "uint8" if semantic else "uint64"
     shards = tuple(4 * ts for ts in tile_shape)
-    segmentation = zarr.open(output_path, mode="a").create_array(
+    f = zarr.open(output_path, mode="a")
+    if output_key in f:
+        del f[output_key]
+    segmentation = f.create_array(
         name=output_key, shape=image.shape[:2], dtype=dtype, chunks=tile_shape, shards=shards,
     )
 
@@ -155,7 +161,9 @@ def main():
     parser.add_argument("--roi", nargs=4, type=int)
     parser.add_argument("--pattern")
     parser.add_argument("--classification_model")
+    parser.add_argument("--normalize", action="store_true")
     parser.add_argument("--check", action="store_true")
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
     if args.pattern is None:
@@ -164,7 +172,7 @@ def main():
             batch_size=args.batch_size, output_key=args.output_key,
             semantic=args.semantic, mask=args.mask, roi=args.roi,
             classification_model=args.classification_model,
-            check=args.check,
+            normalize=args.normalize, check=args.check, overwrite=args.overwrite,
         )
     else:
         input_folder, output_folder = args.image_path, args.output_path
@@ -180,6 +188,7 @@ def main():
                 batch_size=args.batch_size, output_key=args.output_key,
                 semantic=args.semantic, mask=args.mask, roi=args.roi,
                 classification_model=args.classification_model, check=args.check,
+                normalize=args.normalize, overwrite=args.overwrite,
             )
 
 
